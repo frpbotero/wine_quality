@@ -21,6 +21,6 @@ COPY supabase_logger.py ./supabase_logger.py
 EXPOSE 8000 8501
 
 # Uvicorn starts FastAPI; FastAPI lifespan spawns Streamlit as subprocess
-CMD ["streamlit", "run", "app.py", \
+CMD ["streamlit", "run", "streamlit_ui.py", \
      "--server.port=8501", \
      "--server.address=0.0.0.0"]
