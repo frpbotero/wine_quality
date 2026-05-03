@@ -1,0 +1,27 @@
+stages:
+  ingestion:
+    cmd: python src/ingestion.py
+    deps:
+      - src/ingestion.py
+      - data/winequality-red.csv
+    outs:
+      - data/raw/winequality-red.csv
+
+  preprocessing:
+    cmd: python src/preprocessing.py
+    deps:
+      - src/preprocessing.py
+      - data/raw/winequality-red.csv
+    outs:
+      - data/processed/wine_processed.parquet
+
+  training:
+    cmd: python src/train.py
+    deps:
+      - src/train.py
+      - data/processed/wine_processed.parquet
+    outs:
+      - app/best_model.pkl
+    metrics:
+      - reports/model_comparison.json:
+          cache: false
