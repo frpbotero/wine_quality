@@ -16,6 +16,8 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 
+import supabase_logger
+
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT.parent / ".env")
 
@@ -200,36 +202,58 @@ except Exception as e:
 
 # ── Sidebar com informações ────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### 📊 Informações do Pipeline")
-
+    st.markdown("### 🤖 Modelo em Uso")
+    
     training_report = load_training_report()
+    evaluation_report = load_evaluation_report()
+    
     if training_report:
-        st.markdown("#### 📈 Treinamento")
+        # Encontrar melhor modelo
         best_model_name = None
         best_f1 = 0
         for name, metrics in training_report.items():
             if metrics.get("val_f1", 0) > best_f1:
                 best_f1 = metrics.get("val_f1", 0)
                 best_model_name = name
+        
         if best_model_name:
-            st.metric("Melhor modelo (Val F1)", f"{best_f1:.4f}")
-            st.caption(f"🏆 {best_model_name}")
+            # Extrair nome e estratégia
+            parts = best_model_name.split("_", 1)
+            strategy = parts[0] if parts else "Unknown"
+            model_type = "_".join(parts[1:]) if len(parts) > 1 else "Unknown"
+            
+            st.markdown(f"**📛 Nome:** `{best_model_name}`")
+            st.markdown(f"**⚙️ Estratégia:** `{strategy}`")
+            st.markdown(f"**🧠 Algoritmo:** `{model_type}`")
+            
+            st.markdown("---")
+            st.markdown("#### 📊 Métricas de Validação")
+            
+            train_metrics = training_report[best_model_name]
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("✅ Acurácia", f"{train_metrics.get('val_accuracy', 0):.4f}")
+                st.metric("📈 Recall", f"{train_metrics.get('val_recall', 0):.4f}")
+            with col2:
+                st.metric("🎯 F1-Score", f"{train_metrics.get('val_f1', 0):.4f}")
+                st.metric("🔍 Precisão", f"{train_metrics.get('val_precision', 0):.4f}")
+            
+            if best_model_name in evaluation_report:
+                st.markdown("---")
+                st.markdown("#### 🏆 Métricas de Teste")
+                test_metrics = evaluation_report[best_model_name]
+                col3, col4 = st.columns(2)
+                with col3:
+                    st.metric("✅ Acurácia", f"{test_metrics.get('test_accuracy', 0):.4f}")
+                    st.metric("📈 Recall", f"{test_metrics.get('test_recall', 0):.4f}")
+                with col4:
+                    st.metric("🎯 F1-Score", f"{test_metrics.get('test_f1', 0):.4f}")
+                    st.metric("🔍 Precisão", f"{test_metrics.get('test_precision', 0):.4f}")
+    else:
+        st.info("📊 Execute `python src/train.py` para gerar relatório.")
 
-    evaluation_report = load_evaluation_report()
-    if evaluation_report:
-        st.markdown("#### 🎯 Avaliação (Test)")
-        best_test_f1 = 0
-        best_test_model = None
-        for name, metrics in evaluation_report.items():
-            if metrics.get("test_f1", 0) > best_test_f1:
-                best_test_f1 = metrics.get("test_f1", 0)
-                best_test_model = name
-        if best_test_model:
-            st.metric("Melhor F1 (Test)", f"{best_test_f1:.4f}")
-            st.caption(f"🎖️ {best_test_model}")
-
-tab_predict, tab_comparison, tab_history = st.tabs(
-    ["🔮 Predição", "📊 Comparação", "📜 Histórico"]
+tab_predict, tab_history = st.tabs(
+    ["🔮 Predição", "📜 Histórico"]
 )
 
 # ── Tab: Predição ─────────────────────────────────────────────────────────
@@ -251,8 +275,6 @@ with tab_predict:
         ph = st.slider("pH", 2.70, 4.00, 3.30, 0.01)
         sulphates = st.slider("sulphates", 0.20, 2.00, 0.60, 0.01)
         alcohol = st.slider("alcohol", 8.0, 15.0, 10.0, 0.1)
-
-    use_api = st.toggle("Usar API REST (/predict)", value=False)
 
     if "history" not in st.session_state:
         st.session_state.history = []
@@ -303,6 +325,24 @@ with tab_predict:
                     **payload,
                 }
             )
+            
+            # Salvar no Supabase
+            try:
+                proba_dict = {
+                    CLASS_LABELS.get(classes[i], str(classes[i])): proba[i]
+                    for i in range(len(proba))
+                }
+                supabase_logger.log_prediction(
+                    features=payload,
+                    predicted_quality=quality,
+                    quality_label=label.replace("🔴 ", "").replace("🟡 ", "").replace("🟢 ", ""),
+                    probabilities=proba_dict,
+                    elapsed_ms=0
+                )
+                st.success("✅ Predição salva no Supabase!")
+            except Exception as e:
+                st.warning(f"⚠️ Não foi possível salvar no Supabase: {e}")
+                
         except Exception as exc:
             st.error(f"Erro na predição: {exc}")
 
@@ -325,80 +365,3 @@ with tab_history:
                 st.info("Nenhuma simulação registrada ainda.")
         except Exception:
             st.info("Faça uma predição para ver o histórico aqui.")
-# ── Tab: Model Comparison ──────────────────────────────────────────────────
-with tab_comparison:
-    st.markdown("### 📈 Comparação de Modelos")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("#### 🎓 Métricas de Treinamento (Validação)")
-        training_report = load_training_report()
-        if training_report:
-            df_train = pd.DataFrame(training_report).T
-            if not df_train.empty:
-                # Renomear colunas para melhor visualização
-                df_train = df_train[
-                    ["val_accuracy", "val_f1", "val_precision", "val_recall"]
-                ].round(4)
-                st.dataframe(df_train, use_container_width=True)
-
-                # Gráfico de F1
-                st.markdown("##### F1-Score (Validação)")
-                f1_scores = df_train["val_f1"].sort_values(ascending=False)
-                st.bar_chart(f1_scores, use_container_width=True)
-        else:
-            st.info(
-                "Nenhum relatório de treinamento disponível. Execute `python src/train.py` primeiro."
-            )
-
-    with col2:
-        st.markdown("#### 🎯 Métricas de Teste (Avaliação)")
-        evaluation_report = load_evaluation_report()
-        if evaluation_report:
-            df_eval = pd.DataFrame(evaluation_report).T
-            if not df_eval.empty:
-                # Renomear colunas para melhor visualização
-                df_eval = df_eval[
-                    ["test_accuracy", "test_f1", "test_precision", "test_recall"]
-                ].round(4)
-                st.dataframe(df_eval, use_container_width=True)
-
-                # Gráfico de F1
-                st.markdown("##### F1-Score (Test)")
-                f1_scores_test = df_eval["test_f1"].sort_values(ascending=False)
-                st.bar_chart(f1_scores_test, use_container_width=True)
-        else:
-            st.info(
-                "Nenhum relatório de avaliação disponível. Execute `python src/evaluate.py` primeiro."
-            )
-
-    # Comparação lado a lado
-    if training_report and evaluation_report:
-        st.markdown("---")
-        st.markdown("#### 📊 Validação vs Teste")
-
-        comparison_data = []
-        for model_name in training_report.keys():
-            if model_name in evaluation_report:
-                train_metrics = training_report[model_name]
-                test_metrics = evaluation_report[model_name]
-
-                comparison_data.append(
-                    {
-                        "Modelo": model_name,
-                        "Val F1": train_metrics.get("val_f1", 0),
-                        "Test F1": test_metrics.get("test_f1", 0),
-                        "Diferença": abs(
-                            train_metrics.get("val_f1", 0)
-                            - test_metrics.get("test_f1", 0)
-                        ),
-                    }
-                )
-
-        if comparison_data:
-            df_comparison = pd.DataFrame(comparison_data)
-            st.dataframe(df_comparison, use_container_width=True)
-
-            st.markdown("##### Overfitting Risk (|Val F1 - Test F1|)")
-            st.bar_chart(df_comparison.set_index("Modelo")["Diferença"])
