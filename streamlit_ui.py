@@ -295,10 +295,7 @@ with tab_predict:
         }
 
         try:
-            if use_api:
-                quality, proba, classes = _predict_api(payload)
-            else:
-                quality, proba, classes = _predict_local(payload)
+            quality, proba, classes = _predict_local(payload)
 
             label = CLASS_LABELS.get(quality, str(quality))
             q_idx = classes.index(quality) if quality in classes else 0
