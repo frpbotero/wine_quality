@@ -2,7 +2,7 @@
 .env
 
 # Modelo treinado (artefato grande — use DVC ou S3)
-app/mlp_wine.pkl
+mlp_wine.pkl
 notebooks/mlp_wine.pkl
 
 # Python
@@ -22,3 +22,4 @@ pgdata/
 reports/*.png
 
 
+/mlruns

@@ -23,7 +23,6 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
-from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
@@ -38,9 +37,10 @@ except Exception:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_PATH = ROOT / "data" / "processed" / "wine_processed.parquet"
-APP_MODEL_PATH = ROOT / "app" / "best_model.pkl"
-REPORT_PATH = ROOT / "reports" / "model_comparison.json"
+SPLITS_DIR = ROOT / "data" / "processed" / "splits"
+MODELS_DIR = ROOT / "models" / "trained"
+APP_MODEL_PATH = ROOT / "models" / "best_model.pkl"
+REPORT_PATH = ROOT / "reports" / "training_report.json"
 
 TARGET = "quality"
 
@@ -48,21 +48,18 @@ TARGET = "quality"
 CLASS_NAMES = ["Ruim(0)", "Médio(1)", "Bom(2)"]
 
 
-def _setup_mlflow() -> str:
+def _setup_mlflow() -> None:
     load_dotenv(ROOT / ".env")
     user = os.getenv("DAGSHUB_USERNAME", "")
     token = os.getenv("DAGSHUB_TOKEN", "")
     repo_name = os.getenv("DAGSHUB_REPO_NAME", "")
     experiment = os.getenv("MLFLOW_EXPERIMENT", "wine-quality")
 
-    if user and token and repo_name and dagshub is not None:
-        dagshub.auth.add_app_token(token)
-        dagshub.init(repo_name=repo_name, repo_owner=user, mlflow=True)
-        os.environ["MLFLOW_TRACKING_USERNAME"] = user
-        os.environ["MLFLOW_TRACKING_PASSWORD"] = token
-
+    # Use local MLflow for training, sync to remote later
+    print("[train] ℹ️ Using local MLflow tracking at ./mlruns")
+    print("[train] 💡 To push to DagsHub: dvc push && dvc dag")
+    mlflow.set_tracking_uri("./mlruns")
     mlflow.set_experiment(experiment)
-    return os.getenv("MLFLOW_MODEL_NAME", "wine-quality")
 
 
 def _make_preprocessor(num_cols: list[str]) -> ColumnTransformer:
@@ -104,11 +101,14 @@ def _promote_best(registered_name: str, best_run_id: str) -> None:
     for v in versions:
         if v.run_id == best_run_id:
             try:
-                client.transition_model_version_stage(
+                # MLflow >=2.9: use aliases instead of deprecated stages
+                client.set_registered_model_alias(
                     name=registered_name,
+                    alias="champion",
                     version=v.version,
-                    stage="Production",
-                    archive_existing_versions=True,
+                )
+                print(
+                    f"[train] Alias 'champion' definido para {registered_name} v{v.version}"
                 )
             except Exception as exc:
                 print(f"[train] Aviso ao promover modelo: {exc}")
@@ -117,24 +117,34 @@ def _promote_best(registered_name: str, best_run_id: str) -> None:
 
 def train() -> None:
     _setup_mlflow()
-    df = pd.read_parquet(DATA_PATH)
 
-    X = df.drop(columns=[TARGET])
-    y = df[TARGET].astype(int)
-    num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+    # ── Load preprocessed splits ───────────────────────────────────────────────
+    train_path = SPLITS_DIR / "train.parquet"
+    val_path = SPLITS_DIR / "val.parquet"
 
-    print(f"[train] Shape: {X.shape}  |  Classes: {sorted(y.unique())}")
-    print(f"[train] Distribuição:\n{y.value_counts().sort_index()}\n")
+    if not train_path.exists() or not val_path.exists():
+        raise FileNotFoundError(
+            f"Splits not found. Run 'python src/prepare_data.py' first.\n"
+            f"  Train: {train_path}\n"
+            f"  Val:   {val_path}"
+        )
 
-    # ── Split 60 / 20 / 20 ─────────────────────────────────────────────────────
-    X_temp, X_test, y_temp, y_test = train_test_split(
-        X, y, test_size=0.20, random_state=42, stratify=y
-    )
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_temp, y_temp, test_size=0.25, random_state=42, stratify=y_temp
-    )
+    train_df = pd.read_parquet(train_path)
+    val_df = pd.read_parquet(val_path)
+
+    col_names = train_df.drop(columns=[TARGET]).columns.tolist()
+
+    X_train = train_df.drop(columns=[TARGET])
+    y_train = train_df[TARGET].values.astype(int)
+
+    X_val = val_df.drop(columns=[TARGET])
+    y_val = val_df[TARGET].values.astype(int)
+
+    print("[train] Splits carregados:")
+    print(f"  Treino: {X_train.shape}")
+    print(f"  Validação: {X_val.shape}")
     print(
-        f"[train] Treino={len(X_train)}  Validação={len(X_val)}  Teste={len(X_test)}\n"
+        f"[train] Distribuição de classes (treino):\n{pd.Series(y_train).value_counts().sort_index()}\n"
     )
 
     best_score: float = -np.inf
@@ -148,8 +158,8 @@ def train() -> None:
     # ══════════════════════════════════════════════════════════════════════════════
     smote = SMOTE(random_state=42)
     X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
-    X_train_smote = pd.DataFrame(X_train_smote, columns=X_train.columns)
-    y_train_smote = np.array(y_train_smote, dtype=int)
+    # Convert back to DataFrame to preserve column names for ColumnTransformer
+    X_train_smote = pd.DataFrame(X_train_smote, columns=col_names)
 
     print(f"[SMOTE] Amostras após balanceamento: {len(X_train_smote)}")
     print(pd.Series(y_train_smote).value_counts().sort_index().to_string(), "\n")
@@ -161,59 +171,56 @@ def train() -> None:
 
         pipeline = Pipeline(
             [
-                ("preprocessor", _make_preprocessor(num_cols)),
+                ("preprocessor", _make_preprocessor(col_names)),
                 ("classifier", clf),
             ]
         )
         pipeline.fit(X_train_smote, y_train_smote)
 
         y_val_pred = pipeline.predict(X_val)
-        y_test_pred = pipeline.predict(X_test)
         val_metrics = _compute_metrics(y_val, y_val_pred, prefix="val_")
-        test_metrics = _compute_metrics(y_test, y_test_pred, prefix="test_")
-        all_metrics = {**val_metrics, **test_metrics}
 
         print(f"  Val  → Acc:{val_metrics['val_accuracy']}  F1:{val_metrics['val_f1']}")
-        print(
-            f"  Test → Acc:{test_metrics['test_accuracy']}  F1:{test_metrics['test_f1']}"
-        )
-        print(classification_report(y_test, y_test_pred, target_names=CLASS_NAMES))
+        print(classification_report(y_val, y_val_pred, target_names=CLASS_NAMES))
 
-        metrics_report[run_name] = all_metrics
+        metrics_report[run_name] = val_metrics
+
+        # ── Save model ─────────────────────────────────────────────────────────
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        model_path = MODELS_DIR / f"{run_name}.joblib"
+        joblib.dump(pipeline, model_path)
 
         with mlflow.start_run(run_name=run_name) as run:
             mlflow.log_param("strategy", STRATEGY)
             mlflow.log_param("model", clf_name)
             mlflow.log_param("train_samples", int(len(X_train_smote)))
             mlflow.log_param("val_samples", int(len(X_val)))
-            mlflow.log_param("test_samples", int(len(X_test)))
-            mlflow.log_metrics(all_metrics)
+            mlflow.log_metrics(val_metrics)
             mlflow.sklearn.log_model(
                 pipeline,
                 artifact_path="model",
                 registered_model_name=f"wine_{STRATEGY}_{clf_name}",
             )
-            if test_metrics["test_f1"] > best_score:
-                best_score = test_metrics["test_f1"]
+            if val_metrics["val_f1"] > best_score:
+                best_score = val_metrics["val_f1"]
                 best_model = pipeline
                 best_run_id = run.info.run_id
                 best_registered = f"wine_{STRATEGY}_{clf_name}"
 
-        print(f"  ✅ Registrado → wine_{STRATEGY}_{clf_name}\n")
+        print(f"  ✅ Registrado → wine_{STRATEGY}_{clf_name}")
+        print(f"  💾 Salvo em: {model_path}\n")
 
-    print("🎉 SMOTE — todos os modelos registrados!\n")
+    print("🎉 SMOTE — todos os modelos treinados e salvos!\n")
 
     # ══════════════════════════════════════════════════════════════════════════════
     # Estratégia 2 — Tomek Links (Under-sampling)
     # ══════════════════════════════════════════════════════════════════════════════
-    preprocessor_tomek = _make_preprocessor(num_cols)
+    preprocessor_tomek = _make_preprocessor(col_names)
     X_train_trans = preprocessor_tomek.fit_transform(X_train)
     X_val_trans = preprocessor_tomek.transform(X_val)
-    X_test_trans = preprocessor_tomek.transform(X_test)
 
-    y_train_int = y_train.values.astype(int)
-    y_val_int = y_val.values.astype(int)
-    y_test_int = y_test.values.astype(int)
+    y_train_int = y_train.astype(int)
+    y_val_int = y_val.astype(int)
 
     tomek = TomekLinks()
     X_train_tomek, y_train_tomek = tomek.fit_resample(X_train_trans, y_train_int)
@@ -232,26 +239,24 @@ def train() -> None:
         clf.fit(X_train_tomek, y_train_tomek)
 
         y_val_pred = clf.predict(X_val_trans)
-        y_test_pred = clf.predict(X_test_trans)
         val_metrics = _compute_metrics(y_val_int, y_val_pred, prefix="val_")
-        test_metrics = _compute_metrics(y_test_int, y_test_pred, prefix="test_")
-        all_metrics = {**val_metrics, **test_metrics}
 
         print(f"  Val  → Acc:{val_metrics['val_accuracy']}  F1:{val_metrics['val_f1']}")
-        print(
-            f"  Test → Acc:{test_metrics['test_accuracy']}  F1:{test_metrics['test_f1']}"
-        )
-        print(classification_report(y_test_int, y_test_pred, target_names=CLASS_NAMES))
+        print(classification_report(y_val_int, y_val_pred, target_names=CLASS_NAMES))
 
-        metrics_report[run_name] = all_metrics
+        metrics_report[run_name] = val_metrics
+
+        # ── Save model ─────────────────────────────────────────────────────────
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        model_path = MODELS_DIR / f"{run_name}.joblib"
+        joblib.dump(clf, model_path)
 
         with mlflow.start_run(run_name=run_name) as run:
             mlflow.log_param("strategy", STRATEGY)
             mlflow.log_param("model", clf_name)
             mlflow.log_param("train_samples", int(len(X_train_tomek)))
             mlflow.log_param("val_samples", int(len(X_val_trans)))
-            mlflow.log_param("test_samples", int(len(X_test_trans)))
-            mlflow.log_metrics(all_metrics)
+            mlflow.log_metrics(val_metrics)
             mlflow.sklearn.log_model(
                 clf,
                 artifact_path="model",
@@ -261,15 +266,16 @@ def train() -> None:
                 preprocessor_tomek,
                 artifact_path="preprocessor",
             )
-            if test_metrics["test_f1"] > best_score:
-                best_score = test_metrics["test_f1"]
+            if val_metrics["val_f1"] > best_score:
+                best_score = val_metrics["val_f1"]
                 best_model = clf  # type: ignore[assignment]
                 best_run_id = run.info.run_id
                 best_registered = f"wine_{STRATEGY}_{clf_name}"
 
-        print(f"  ✅ Registrado → wine_{STRATEGY}_{clf_name}\n")
+        print(f"  ✅ Registrado → wine_{STRATEGY}_{clf_name}")
+        print(f"  💾 Salvo em: {model_path}\n")
 
-    print("🎉 Tomek — todos os modelos registrados!\n")
+    print("🎉 Tomek — todos os modelos treinados e salvos!\n")
 
     # ══════════════════════════════════════════════════════════════════════════════
     # Salvar melhor modelo + promover no MLflow
@@ -290,8 +296,7 @@ def train() -> None:
         {
             "run": run_name,
             "val_f1": m.get("val_f1", "-"),
-            "test_f1": m.get("test_f1", "-"),
-            "test_accuracy": m.get("test_accuracy", "-"),
+            "val_accuracy": m.get("val_accuracy", "-"),
         }
         for run_name, m in metrics_report.items()
     ]

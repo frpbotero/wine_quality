@@ -14,8 +14,8 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 TABLE_NAME = os.getenv("SUPABASE_TABLE", "wine_quality")
 
-DEFAULT_SOURCE = ROOT / "data" / "winequality-red.csv"
-DEFAULT_RAW_OUT = ROOT / "data" / "raw" / "winequality-red.csv"
+DEFAULT_SOURCE = ROOT / "data" / "wine_quality.csv"
+DEFAULT_RAW_OUT = ROOT / "data" / "raw" / "wine_quality.csv"
 
 BATCH_SIZE = 500
 

@@ -1,27 +1,71 @@
 stages:
-  ingestion:
-    cmd: python src/ingestion.py
-    deps:
-      - src/ingestion.py
-      - data/winequality-red.csv
+  ingest:
+    cmd: python3 src/ingestion.py
     outs:
-      - data/raw/winequality-red.csv
+      - data/raw/wine_quality.csv
 
-  preprocessing:
-    cmd: python src/preprocessing.py
+  preprocess:
+    cmd: python3 src/preprocessing.py
     deps:
       - src/preprocessing.py
-      - data/raw/winequality-red.csv
+      - data/raw/wine_quality.csv
     outs:
       - data/processed/wine_processed.parquet
 
-  training:
-    cmd: python src/train.py
+  prepare:
+    cmd: python3 src/prepare_data.py
     deps:
-      - src/train.py
+      - src/prepare_data.py
       - data/processed/wine_processed.parquet
     outs:
-      - app/best_model.pkl
-    metrics:
-      - reports/model_comparison.json:
-          cache: false
+      - data/processed/splits/train.parquet
+      - data/processed/splits/val.parquet
+      - data/processed/splits/test.parquet
+      - models/preprocessors/preprocessor.joblib
+
+  train:
+    cmd: python3 src/train.py
+    deps:
+      - src/train.py
+      - data/processed/splits/train.parquet
+      - data/processed/splits/val.parquet
+    outs:
+      - models/trained/SMOTE_logistic_regression.joblib
+      - models/trained/SMOTE_random_forest.joblib
+      - models/trained/SMOTE_knn.joblib
+      - models/trained/SMOTE_svm.joblib
+      - models/trained/SMOTE_xgboost.joblib
+      - models/trained/SMOTE_mlp.joblib
+      - models/trained/Tomek_logistic_regression.joblib
+      - models/trained/Tomek_random_forest.joblib
+      - models/trained/Tomek_knn.joblib
+      - models/trained/Tomek_svm.joblib
+      - models/trained/Tomek_xgboost.joblib
+      - models/trained/Tomek_mlp.joblib
+      - models/best_model.pkl
+      - reports/training_report.json
+
+  evaluate:
+    cmd: python3 src/evaluate.py
+    deps:
+      - src/evaluate.py
+      - data/processed/splits/test.parquet
+      - models/trained/SMOTE_logistic_regression.joblib
+      - models/trained/SMOTE_random_forest.joblib
+      - models/trained/SMOTE_knn.joblib
+      - models/trained/SMOTE_svm.joblib
+      - models/trained/SMOTE_xgboost.joblib
+      - models/trained/SMOTE_mlp.joblib
+      - models/trained/Tomek_logistic_regression.joblib
+      - models/trained/Tomek_random_forest.joblib
+      - models/trained/Tomek_knn.joblib
+      - models/trained/Tomek_svm.joblib
+      - models/trained/Tomek_xgboost.joblib
+      - models/trained/Tomek_mlp.joblib
+    outs:
+      - reports/evaluation_report.json
+    plots:
+      - reports/confusion_matrix_*.png:
+          template: confusion
+      - reports/roc_curve_*.png:
+          template: linear

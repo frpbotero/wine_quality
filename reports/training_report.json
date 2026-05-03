@@ -1,0 +1,74 @@
+{
+  "SMOTE_logistic_regression": {
+    "val_accuracy": 0.55,
+    "val_precision": 0.5683,
+    "val_recall": 0.55,
+    "val_f1": 0.5416
+  },
+  "SMOTE_random_forest": {
+    "val_accuracy": 0.6854,
+    "val_precision": 0.6855,
+    "val_recall": 0.6854,
+    "val_f1": 0.6845
+  },
+  "SMOTE_knn": {
+    "val_accuracy": 0.59,
+    "val_precision": 0.5978,
+    "val_recall": 0.59,
+    "val_f1": 0.5855
+  },
+  "SMOTE_svm": {
+    "val_accuracy": 0.5854,
+    "val_precision": 0.6004,
+    "val_recall": 0.5854,
+    "val_f1": 0.5777
+  },
+  "SMOTE_xgboost": {
+    "val_accuracy": 0.6738,
+    "val_precision": 0.6739,
+    "val_recall": 0.6738,
+    "val_f1": 0.6733
+  },
+  "SMOTE_mlp": {
+    "val_accuracy": 0.6631,
+    "val_precision": 0.6623,
+    "val_recall": 0.6631,
+    "val_f1": 0.6625
+  },
+  "Tomek_logistic_regression": {
+    "val_accuracy": 0.5862,
+    "val_precision": 0.585,
+    "val_recall": 0.5862,
+    "val_f1": 0.5836
+  },
+  "Tomek_random_forest": {
+    "val_accuracy": 0.6746,
+    "val_precision": 0.6754,
+    "val_recall": 0.6746,
+    "val_f1": 0.6749
+  },
+  "Tomek_knn": {
+    "val_accuracy": 0.6115,
+    "val_precision": 0.6103,
+    "val_recall": 0.6115,
+    "val_f1": 0.6099
+  },
+  "Tomek_svm": {
+    "val_accuracy": 0.61,
+    "val_precision": 0.6115,
+    "val_recall": 0.61,
+    "val_f1": 0.6075
+  },
+  "Tomek_xgboost": {
+    "val_accuracy": 0.6777,
+    "val_precision": 0.6773,
+    "val_recall": 0.6777,
+    "val_f1": 0.6774
+  },
+  "Tomek_mlp": {
+    "val_accuracy": 0.6592,
+    "val_precision": 0.6609,
+    "val_recall": 0.6592,
+    "val_f1": 0.6581
+  }
+}

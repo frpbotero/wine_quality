@@ -1,8 +1,0 @@
-streamlit
-pandas
-mlflow
-scikit-learn
-xgboost
-joblib
-python-dotenv
-dagshub

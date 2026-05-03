@@ -8,14 +8,14 @@ Predição de qualidade de vinho (escala 3–9) usando scikit-learn, FastAPI, Po
 
 ```
 wine_project/
-├── app/
+├── 
 │   ├── main.py            # FastAPI — rotas /health, /predict, /simulations
 │   ├── database.py        # Conexão SQLAlchemy + health-check de startup
 │   ├── models.py          # ORM — tabela simulation_logs
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── mlp_wine.pkl       # Modelo treinado (gerado pelo notebook)
-├── streamlit_app/
+├── streamlit_
 │   ├── app.py             # Interface Streamlit
 │   └── Dockerfile
 ├── notebooks/
@@ -40,9 +40,9 @@ cp .env.example .env
 
 ### 2. Treinar o modelo
 ```bash
-pip install -r app/requirements.txt
+pip install -r requirements.txt
 jupyter notebook notebooks/wine_quality_improved.ipynb
-# Execute todas as células — o modelo será salvo em app/mlp_wine.pkl
+# Execute todas as células — o modelo será salvo em mlp_wine.pkl
 ```
 
 ### 3. Subir toda a stack
