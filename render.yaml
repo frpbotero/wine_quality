@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: wine-quality-classifier
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    
+    # Environment variables from settings
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: DAGSHUB_USERNAME
+        sync: false
+      - key: DAGSHUB_REPO_NAME
+        sync: false
+      - key: DAGSHUB_TOKEN
+        sync: false
+      - key: API_SECRET_KEY
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+
+    # Health check
+    healthCheckPath: /health
+    healthCheckInterval: 30
+
+    # Auto-deploy from GitHub
+    repo: https://github.com/frpbotero/wine_quality
+    branch: master
+    autoDeploy: true
