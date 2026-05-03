@@ -1,191 +1,130 @@
-"""
-Streamlit UI — Wine Quality Predictor
-Carrega o modelo diretamente do MLflow Model Registry (stage: Production).
-"""
+from __future__ import annotations
 
-import os, time
-import numpy as np
-import pandas as pd
-import requests
-import streamlit as st
+import os
+from pathlib import Path
+
+import joblib
 import mlflow
 import mlflow.sklearn
-
-st.set_page_config(page_title="🍷 Wine Quality Predictor", page_icon="🍷", layout="wide")
-
-API_URL          = os.getenv("API_URL",              "http://api:8000")
-MLFLOW_URI       = os.getenv("MLFLOW_TRACKING_URI",  "")
-DAGSHUB_USERNAME = os.getenv("DAGSHUB_USERNAME",     "")
-DAGSHUB_TOKEN    = os.getenv("DAGSHUB_TOKEN",        "")
-REGISTERED_MODEL = os.getenv("MLFLOW_MODEL_NAME",    "wine-quality")
+import numpy as np
+import pandas as pd
+import streamlit as st
+from dotenv import load_dotenv
 
 
-# ── Carregamento via MLflow Registry ─────────────────────────────────────────
+st.set_page_config(page_title="Wine Quality (Binary)", page_icon="🍷", layout="wide")
 
-@st.cache_resource(show_spinner="Carregando modelo do MLflow Registry...")
-def load_model_from_registry():
-    if MLFLOW_URI:
+ROOT = Path(__file__).resolve().parents[1]
+ENV_PATH = ROOT / ".env"
+PROCESSED_PATH = ROOT / "data" / "processed" / "wine_processed.parquet"
+MODEL_FALLBACK = ROOT / "app" / "best_model.pkl"
+SKEWED_COLUMNS = ["sulphates", "chlorides", "residual_sugar"]
+
+load_dotenv(ENV_PATH)
+
+
+@st.cache_resource(show_spinner=True)
+def load_model():
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "")
+    username = os.getenv("DAGSHUB_USERNAME", "")
+    token = os.getenv("DAGSHUB_TOKEN", "")
+    model_name = os.getenv("MLFLOW_MODEL_NAME", "wine-quality-binary")
+
+    if tracking_uri and username and token:
         try:
-            mlflow.set_tracking_uri(MLFLOW_URI)
-            os.environ["MLFLOW_TRACKING_USERNAME"] = DAGSHUB_USERNAME
-            os.environ["MLFLOW_TRACKING_PASSWORD"] = DAGSHUB_TOKEN
+            os.environ["MLFLOW_TRACKING_USERNAME"] = username
+            os.environ["MLFLOW_TRACKING_PASSWORD"] = token
+            mlflow.set_tracking_uri(tracking_uri)
+            model = mlflow.sklearn.load_model(f"models:/{model_name}/Production")
+            return model, "MLflow Registry"
+        except Exception:
+            pass
 
-            model_uri = f"models:/{REGISTERED_MODEL}/Production"
-            model = mlflow.sklearn.load_model(model_uri)
-
-            client = mlflow.MlflowClient()
-            versions = client.get_latest_versions(REGISTERED_MODEL, stages=["Production"])
-            version_info = versions[0] if versions else None
-            return model, model_uri, version_info
-        except Exception as e:
-            st.warning(f"Nao foi possivel carregar do MLflow: {e}\n\nUsando fallback local.")
-
-    # Fallback local
-    import pickle
-    pkl_path = os.getenv("MODEL_PATH", "mlp_wine.pkl")
-    if os.path.exists(pkl_path):
-        with open(pkl_path, "rb") as f:
-            return pickle.load(f), f"local://{pkl_path}", None
-
-    raise RuntimeError("Modelo nao encontrado. Configure MLFLOW_TRACKING_URI ou mlp_wine.pkl.")
+    if MODEL_FALLBACK.exists():
+        return joblib.load(MODEL_FALLBACK), f"Fallback local ({MODEL_FALLBACK.name})"
+    raise RuntimeError("Modelo não encontrado no MLflow e sem fallback local.")
 
 
-def add_features(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["alcohol_sulphates"] = df["alcohol"] * df["sulphates"]
-    df["acid_ratio"]        = df["fixed acidity"] / (df["volatile acidity"] + 1e-6)
-    df["so2_ratio"]         = df["free sulfur dioxide"] / (df["total sulfur dioxide"] + 1e-6)
-    for col in ["residual sugar", "chlorides", "free sulfur dioxide", "total sulfur dioxide"]:
-        df[f"log_{col.replace(' ', '_')}"] = np.log1p(df[col])
-    return df
+@st.cache_data(show_spinner=False)
+def load_eda_df() -> pd.DataFrame:
+    return pd.read_parquet(PROCESSED_PATH)
 
 
-def build_input_df(w: dict) -> pd.DataFrame:
-    raw = pd.DataFrame([{
-        "fixed acidity": w["fixed_acidity"], "volatile acidity": w["volatile_acidity"],
-        "citric acid": w["citric_acid"],     "residual sugar": w["residual_sugar"],
-        "chlorides": w["chlorides"],          "free sulfur dioxide": w["free_sulfur_dioxide"],
-        "total sulfur dioxide": w["total_sulfur_dioxide"], "density": w["density"],
-        "pH": w["pH"], "sulphates": w["sulphates"], "alcohol": w["alcohol"], "type": w["type"],
-    }])
-    return add_features(raw)
+def _prepare_features(payload: dict[str, float]) -> pd.DataFrame:
+    df = pd.DataFrame([payload])
+    df["sulphates_log"] = np.log1p(df["sulphates"])
+    df["chlorides_log"] = np.log1p(df["chlorides"])
+    df["residual_sugar_log"] = np.log1p(df["residual_sugar"])
+    return df[
+        [
+            "alcohol",
+            "volatile_acidity",
+            "citric_acid",
+            "density",
+            "sulphates_log",
+            "chlorides_log",
+            "residual_sugar_log",
+        ]
+    ]
 
 
-# ── Header ───────────────────────────────────────────────────────────────────
+def predict(payload: dict[str, float]) -> tuple[int, float]:
+    model, _ = load_model()
+    features = _prepare_features(payload)
+    pred = int(model.predict(features)[0])
+    proba = float(model.predict_proba(features)[0][1])
+    return pred, proba
 
-st.title("🍷 Wine Quality Predictor")
 
-try:
-    model, model_uri, version_info = load_model_from_registry()
-    if version_info:
-        st.caption(
-            f"Modelo `{REGISTERED_MODEL}` v{version_info.version} | "
-            f"Stage: **{version_info.current_stage}** | "
-            f"Run: `{version_info.run_id[:8]}...`"
-        )
+st.title("Wine Quality Classifier")
+model, source = load_model()
+st.caption(f"Modelo carregado via: {source}")
+
+tab_predict, tab_eda = st.tabs(["Predição", "EDA"])
+
+with tab_predict:
+    c1, c2 = st.columns(2)
+    with c1:
+        alcohol = st.slider("alcohol", 8.0, 15.0, 10.0, 0.1)
+        volatile_acidity = st.slider("volatile acidity", 0.08, 1.60, 0.50, 0.01)
+        citric_acid = st.slider("citric acid", 0.0, 1.7, 0.30, 0.01)
+        density = st.slider("density", 0.9870, 1.0400, 0.9960, 0.0001, format="%.4f")
+    with c2:
+        sulphates = st.slider("sulphates", 0.20, 2.10, 0.60, 0.01)
+        chlorides = st.slider("chlorides", 0.009, 0.65, 0.08, 0.001)
+        residual_sugar = st.slider("residual sugar", 0.5, 16.0, 2.0, 0.1)
+
+    if "history" not in st.session_state:
+        st.session_state.history = []
+
+    if st.button("Classificar", use_container_width=True):
+        payload = {
+            "alcohol": alcohol,
+            "volatile_acidity": volatile_acidity,
+            "citric_acid": citric_acid,
+            "density": density,
+            "sulphates": sulphates,
+            "chlorides": chlorides,
+            "residual_sugar": residual_sugar,
+        }
+        pred, prob = predict(payload)
+        label = "🍷 Boa Qualidade" if pred == 1 else "❌ Não-Boa"
+        st.subheader(label)
+        st.progress(int(round(prob * 100)))
+        st.write(f"Probabilidade de boa qualidade: **{prob:.2%}**")
+        st.session_state.history.append({"prediction": pred, "probability": prob, **payload})
+
+    if st.session_state.history:
+        st.markdown("### Histórico")
+        st.dataframe(pd.DataFrame(st.session_state.history).tail(20), use_container_width=True)
+
+with tab_eda:
+    if not PROCESSED_PATH.exists():
+        st.info("Arquivo processado não encontrado. Rode preprocessing e train antes.")
     else:
-        st.caption(f"Modelo carregado de: `{model_uri}`")
-    model_loaded = True
-except Exception as err:
-    st.error(f"Erro ao carregar modelo: {err}")
-    model_loaded = False
-
-st.divider()
-
-# ── Sidebar — inputs ─────────────────────────────────────────────────────────
-
-with st.sidebar:
-    st.header("Atributos do Vinho")
-    wine_type        = st.selectbox("Tipo", ["red", "white"])
-    fixed_acidity    = st.slider("Fixed Acidity",    3.8,  15.9,  7.4,   0.1)
-    volatile_acidity = st.slider("Volatile Acidity", 0.08,  1.58,  0.70,  0.01)
-    citric_acid      = st.slider("Citric Acid",      0.0,   1.66,  0.0,   0.01)
-    residual_sugar   = st.slider("Residual Sugar",   0.6,  65.8,   1.9,   0.1)
-    chlorides        = st.slider("Chlorides",        0.009, 0.611, 0.076, 0.001)
-    free_so2         = st.slider("Free SO2",         1.0,  289.0, 11.0,   1.0)
-    total_so2        = st.slider("Total SO2",        6.0,  440.0, 34.0,   1.0)
-    density          = st.slider("Density",          0.9871, 1.039, 0.9978, 0.0001, format="%.4f")
-    ph               = st.slider("pH",               2.72,  4.01,  3.51,  0.01)
-    sulphates        = st.slider("Sulphates",        0.22,  2.0,   0.56,  0.01)
-    alcohol          = st.slider("Alcohol (%)",      8.0,  14.9,   9.4,   0.1)
-    st.divider()
-    predict_btn  = st.button("Prever Qualidade", use_container_width=True, disabled=not model_loaded)
-    use_api      = st.checkbox("Registrar via API (salva no banco)", value=False)
-
-# ── Predicao ─────────────────────────────────────────────────────────────────
-
-col1, col2 = st.columns(2)
-
-if predict_btn:
-    wine_input = dict(
-        fixed_acidity=fixed_acidity, volatile_acidity=volatile_acidity,
-        citric_acid=citric_acid,     residual_sugar=residual_sugar,
-        chlorides=chlorides,          free_sulfur_dioxide=free_so2,
-        total_sulfur_dioxide=total_so2, density=density,
-        pH=ph, sulphates=sulphates, alcohol=alcohol, type=wine_type,
-    )
-
-    quality = probabilities = source = None
-
-    if use_api:
-        try:
-            resp = requests.post(f"{API_URL}/predict", json=wine_input, timeout=10)
-            resp.raise_for_status()
-            d = resp.json()
-            quality, probabilities = d["quality"], d["probabilities"]
-            source = f"API ({d['elapsed_ms']} ms, salvo no banco)"
-        except requests.exceptions.ConnectionError:
-            st.warning("API indisponivel — usando predicao local.")
-
-    if quality is None:
-        t0 = time.perf_counter()
-        df_in = build_input_df(wine_input)
-        quality = int(model.predict(df_in)[0])
-        proba   = model.predict_proba(df_in)[0]
-        probabilities = {str(c): round(float(p), 4) for c, p in zip(model.classes_, proba)}
-        source = f"local ({round((time.perf_counter()-t0)*1000, 2)} ms, MLflow Registry)"
-
-    with col1:
-        st.metric("Qualidade Prevista", quality, help="Escala de 3 a 9")
-        st.caption("⭐" * max(1, quality - 3))
-        if quality <= 4:
-            st.error("Qualidade baixa")
-        elif quality <= 6:
-            st.warning("Qualidade media")
-        else:
-            st.success("Qualidade alta")
-        st.caption(f"Fonte: {source}")
-
-    with col2:
-        proba_df = pd.DataFrame.from_dict(probabilities, orient="index", columns=["Prob"]).sort_index()
-        st.bar_chart(proba_df, color="#4e8cff")
-
-# ── Historico ────────────────────────────────────────────────────────────────
-
-st.divider()
-with st.expander("Historico de Simulacoes (PostgreSQL via API)", expanded=False):
-    try:
-        r = requests.get(f"{API_URL}/simulations?limit=20", timeout=5)
-        r.raise_for_status()
-        rows = r.json()
-        if rows:
-            df_hist = pd.DataFrame(rows)[["id", "created_at", "predicted_quality", "elapsed_ms"]]
-            df_hist.columns = ["ID", "Data/Hora", "Qualidade", "ms"]
-            st.dataframe(df_hist, use_container_width=True)
-        else:
-            st.info("Nenhuma simulacao registrada ainda.")
-    except Exception as e:
-        st.warning(f"API indisponivel: {e}")
-
-# ── Info ─────────────────────────────────────────────────────────────────────
-
-with st.expander("Informacoes do Modelo", expanded=False):
-    st.markdown(f"""
-| Campo | Valor |
-|---|---|
-| Registry | `{REGISTERED_MODEL}` |
-| Tracking URI | `{MLFLOW_URI or 'nao configurado'}` |
-| Model URI | `{model_uri if model_loaded else 'N/A'}` |
-| Features | 19 (11 originais + 7 derivadas) |
-| Balanceamento | SMOTENC (classes 3, 4, 8, 9) |
-""")
+        eda_df = load_eda_df()
+        st.markdown("### Distribuições")
+        for col in ["alcohol", "volatile_acidity", "citric_acid", "density"]:
+            st.bar_chart(eda_df[col], use_container_width=True)
+        st.markdown("### Correlação")
+        st.dataframe(eda_df.corr(numeric_only=True), use_container_width=True)

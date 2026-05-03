@@ -2,13 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install curl for healthchecks and MLflow for model loading
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir streamlit requests pandas mlflow
-
-COPY app.py .
+COPY streamlit_app/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+COPY streamlit_app/app.py ./app.py
+COPY app/best_model.pkl /app/best_model.pkl
 
 EXPOSE 8501
 

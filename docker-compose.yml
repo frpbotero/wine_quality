@@ -2,7 +2,6 @@ version: "3.9"
 
 services:
 
-  # PostgreSQL
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -21,48 +20,20 @@ services:
       retries: 10
       start_period: 10s
 
-  # FastAPI
-  api:
-    build:
-      context: ./app
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      MODEL_PATH:   /app/mlp_wine.pkl
-    volumes:
-      - ./app/mlp_wine.pkl:/app/mlp_wine.pkl:ro
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
-  # Streamlit — busca modelo do MLflow Registry em producao
   streamlit:
     build:
-      context: ./streamlit_app
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: streamlit_app/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
-      API_URL:             http://api:8000
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
       DAGSHUB_USERNAME:    ${DAGSHUB_USERNAME}
       DAGSHUB_TOKEN:       ${DAGSHUB_TOKEN}
+      DAGSHUB_REPO_NAME:   ${DAGSHUB_REPO_NAME}
       MLFLOW_MODEL_NAME:   ${MLFLOW_MODEL_NAME}
     ports:
       - "8501:8501"
-    depends_on:
-      api:
-        condition: service_healthy
 
 volumes:
   pgdata:
