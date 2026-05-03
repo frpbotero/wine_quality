@@ -20,20 +20,33 @@ services:
       retries: 10
       start_period: 10s
 
-  streamlit:
+  app:
     build:
-      context: .
-      dockerfile: streamlit_app/Dockerfile
+      context: .          # raiz do wine_project
+      dockerfile: app/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
+      DATABASE_URL:        postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
       DAGSHUB_USERNAME:    ${DAGSHUB_USERNAME}
       DAGSHUB_TOKEN:       ${DAGSHUB_TOKEN}
       DAGSHUB_REPO_NAME:   ${DAGSHUB_REPO_NAME}
-      MLFLOW_MODEL_NAME:   ${MLFLOW_MODEL_NAME}
+      MLFLOW_MODEL_NAME:   ${MLFLOW_MODEL_NAME:-wine-quality}
     ports:
-      - "8501:8501"
+      - "8000:8000"   # FastAPI / Swagger
+      - "8501:8501"   # Streamlit UI
+    volumes:
+      - ./app/best_model.pkl:/app/best_model.pkl:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
 volumes:
   pgdata:
