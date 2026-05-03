@@ -1,0 +1,24 @@
+# Secrets — NUNCA commitar
+.env
+
+# Modelo treinado (artefato grande — use DVC ou S3)
+app/mlp_wine.pkl
+notebooks/mlp_wine.pkl
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Docker volumes
+pgdata/
+
+# Relatórios gerados
+reports/*.png
+
+
