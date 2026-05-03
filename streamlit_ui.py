@@ -10,8 +10,6 @@ from pathlib import Path
 
 import joblib
 import json
-import mlflow
-import mlflow.sklearn
 import numpy as np
 import pandas as pd
 import requests
@@ -80,6 +78,8 @@ FEATURE_ORDER_RAW = [
     "ph",
     "sulphates",
     "alcohol",
+    "type_red",
+    "type_white",
 ]
 
 
@@ -101,10 +101,23 @@ def _get_expected_features(model) -> list[str]:
 
 
 def _prepare_features(payload: dict, model=None) -> pd.DataFrame:
-    """Prepara features para o modelo (11 features originais + type categórica)."""
+    """Prepara features para o modelo com transformações (11 features químicas + type one-hot encoded + log transforms)."""
     df = pd.DataFrame([payload])
-
-    # Retorna as 11 features originais + type (igual ao notebook)
+    
+    # One-hot encoding para 'type' (red/white)
+    if "type" in df.columns:
+        df = pd.get_dummies(df, columns=["type"], prefix="type", drop_first=False)
+    
+    # Aplicar as mesmas transformações que em main.py
+    df["sulphates_log"] = np.log1p(df["sulphates"])
+    df["chlorides_log"] = np.log1p(df["chlorides"])
+    df["residual_sugar_log"] = np.log1p(df["residual_sugar"])
+    
+    if model is not None:
+        expected = _get_expected_features(model)
+        return df[expected]
+    
+    # Fallback: retorna as 11 features químicas + type one-hot encoded
     return df[
         [
             "fixed_acidity",
@@ -118,7 +131,8 @@ def _prepare_features(payload: dict, model=None) -> pd.DataFrame:
             "ph",
             "sulphates",
             "alcohol",
-            "type",
+            "type_red",
+            "type_white",
         ]
     ]
 

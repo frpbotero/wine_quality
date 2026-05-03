@@ -147,6 +147,7 @@ class WineFeatures(BaseModel):
     ph: float = Field(..., examples=[3.51])
     sulphates: float = Field(..., examples=[0.56])
     alcohol: float = Field(..., examples=[9.4])
+    type: str = Field(..., examples=["red"], description="Wine type: 'red' or 'white'")
 
 
 class PredictionResponse(BaseModel):
@@ -170,7 +171,7 @@ def get_db():
 
 
 # ---------------------------------------------------------------------------
-# Feature engineering — espelha preprocessing.py (11 features brutas)
+# Feature engineering — espelha preprocessing.py (11 features brutas + type one-hot encoded)
 # ---------------------------------------------------------------------------
 
 FEATURE_ORDER_RAW = [
@@ -185,6 +186,8 @@ FEATURE_ORDER_RAW = [
     "ph",
     "sulphates",
     "alcohol",
+    "type_red",
+    "type_white",
 ]
 
 
@@ -206,6 +209,11 @@ def _get_expected_features(model) -> list[str]:
 def _build_dataframe(wine: WineFeatures, model=None) -> pd.DataFrame:
     data = wine.model_dump()
     df = pd.DataFrame([data])
+    
+    # One-hot encoding para 'type' (red/white)
+    if "type" in df.columns:
+        df = pd.get_dummies(df, columns=["type"], prefix="type", drop_first=False)
+    
     df["sulphates_log"] = np.log1p(df["sulphates"])
     df["chlorides_log"] = np.log1p(df["chlorides"])
     df["residual_sugar_log"] = np.log1p(df["residual_sugar"])

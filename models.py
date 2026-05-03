@@ -4,7 +4,7 @@ Tabela de log de simulações no PostgreSQL.
 
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, Float, DateTime, JSON, String
+from sqlalchemy import Column, Integer, Float, DateTime, JSON
 from sqlalchemy.dialects.postgresql import JSONB
 
 from wine_project.database import Base

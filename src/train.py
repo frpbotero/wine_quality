@@ -45,6 +45,7 @@ REPORT_PATH = ROOT / "reports" / "training_report.json"
 TARGET = "quality"
 
 # Classes: 0=Ruim (quality<=5), 1=Médio (quality=6), 2=Bom (quality>=7)
+# Features: 11 químicas + type (red/white) one-hot encoded = 13 features totais
 CLASS_NAMES = ["Ruim(0)", "Médio(1)", "Bom(2)"]
 
 
@@ -55,10 +56,18 @@ def _setup_mlflow() -> None:
     repo_name = os.getenv("DAGSHUB_REPO_NAME", "")
     experiment = os.getenv("MLFLOW_EXPERIMENT", "wine-quality")
 
-    # Use local MLflow for training, sync to remote later
-    print("[train] ℹ️ Using local MLflow tracking at ./mlruns")
-    print("[train] 💡 To push to DagsHub: dvc push && dvc dag")
-    mlflow.set_tracking_uri("./mlruns")
+    if user and token and repo_name:
+        # Configure DagsHub remote tracking
+        dagshub_uri = f"https://dagshub.com/{user}/{repo_name}.mlflow"
+        mlflow.set_tracking_uri(dagshub_uri)
+        os.environ["MLFLOW_TRACKING_USERNAME"] = user
+        os.environ["MLFLOW_TRACKING_PASSWORD"] = token
+        print(f"[train] ✅ MLflow configurado para DagsHub: {dagshub_uri}")
+    else:
+        # Fallback to local MLflow
+        print("[train] ⚠️  Credenciais DagsHub não encontradas. Usando MLflow local em ./mlruns")
+        mlflow.set_tracking_uri("./mlruns")
+    
     mlflow.set_experiment(experiment)
 
 

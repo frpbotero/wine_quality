@@ -40,6 +40,11 @@ def prepare(
     X = df.drop(columns=[TARGET])
     y = df[TARGET].astype(int)
 
+    # ── One-hot encoding para 'type' (red/white) ───────────────────────────────
+    if "type" in X.columns:
+        X = pd.get_dummies(X, columns=["type"], prefix="type", drop_first=False)
+        print(f"[prepare] One-hot encoding aplicado para 'type'")
+
     num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
     print(f"[prepare] Colunas numéricas: {len(num_cols)}")
     print(f"[prepare] Distribuição de classes:\n{y.value_counts().sort_index()}\n")
