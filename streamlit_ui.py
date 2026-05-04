@@ -26,6 +26,12 @@ API_URL = os.getenv("API_URL", "http://localhost:8000")
 EVALUATION_REPORT_PATH = ROOT / "reports" / "evaluation_report.json"
 TRAINING_REPORT_PATH = ROOT / "reports" / "training_report.json"
 
+# MLflow remote tracking (DagsHub)
+MLFLOW_TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI",
+    "https://dagshub.com/frpbotero/wine_project.mlflow"
+)
+
 CLASS_LABELS = {0: "🔴 Ruim", 1: "🟡 Médio", 2: "🟢 Bom"}
 
 WINE_TYPES = {"🍷 Tinto": "red", "🥂 Branco": "white"}
@@ -52,7 +58,8 @@ def load_model():
 
 @st.cache_data(show_spinner="Carregando relatório de avaliação…")
 def load_evaluation_report() -> dict:
-    """Carrega relatório de avaliação gerado por evaluate.py."""
+    """Carrega relatório de avaliação (test metrics) do arquivo local."""
+    # As métricas de teste são salvas localmente por evaluate.py
     if EVALUATION_REPORT_PATH.exists():
         with open(EVALUATION_REPORT_PATH) as f:
             return json.load(f)
@@ -61,11 +68,50 @@ def load_evaluation_report() -> dict:
 
 @st.cache_data(show_spinner="Carregando relatório de treinamento…")
 def load_training_report() -> dict:
-    """Carrega relatório de treinamento gerado por train.py."""
-    if TRAINING_REPORT_PATH.exists():
-        with open(TRAINING_REPORT_PATH) as f:
-            return json.load(f)
-    return {}
+    """Carrega relatório de treinamento (val metrics) do MLflow remoto (DagsHub)."""
+    try:
+        import mlflow
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        client = mlflow.tracking.MlflowClient()
+        
+        # Buscar experiment
+        experiments = client.search_experiments()
+        exp = next((e for e in experiments if e.name == "wine-quality"), None)
+        
+        if not exp:
+            # Fallback para arquivo local
+            if TRAINING_REPORT_PATH.exists():
+                with open(TRAINING_REPORT_PATH) as f:
+                    return json.load(f)
+            return {}
+        
+        # Buscar runs e extrair métricas de validação
+        runs = client.search_runs(exp.experiment_id)
+        report = {}
+        
+        for run in runs:
+            model_name = run.data.tags.get("mlflow.runName", run.info.run_id[:8])
+            
+            # Extrair métricas de validação
+            val_metrics = {
+                k: v for k, v in run.data.metrics.items() 
+                if k.startswith("val_")
+            }
+            
+            if val_metrics:
+                report[model_name] = val_metrics
+        
+        return report if report else (
+            json.load(open(TRAINING_REPORT_PATH)) 
+            if TRAINING_REPORT_PATH.exists() 
+            else {}
+        )
+    except Exception as e:
+        # Fallback silencioso para arquivo local
+        if TRAINING_REPORT_PATH.exists():
+            with open(TRAINING_REPORT_PATH) as f:
+                return json.load(f)
+        return {}
 
 
 FEATURE_ORDER_RAW = [

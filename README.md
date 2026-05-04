@@ -1,14 +1,15 @@
 # 🍷 Wine Quality Classifier
 
-**ML Pipeline + Streamlit UI + FastAPI Backend** - Classificação de qualidade de vinho com balanceamento de dados (SMOTE/Tomek)
+**ML Pipeline + Streamlit UI** - Classificação de qualidade de vinho com balanceamento de dados (SMOTE/Tomek) e rastreamento remoto em DagsHub
 
 ## 📊 Projeto
 
-- **Modelo Vencedor**: SMOTE + Random Forest (Test F1: 0.69)
+- **Modelo Vencedor**: SMOTE + Random Forest (Val F1: 0.6845)
 - **Estratégias**: SMOTE (over-sampling) e Tomek Links (under-sampling)
-- **Classificação**: 3 classes (Ruim/Médio/Bom)
-- **Features**: 11 numéricas + 1 categórica (red/white)
-- **Dataset**: Wine Quality (UCI ML Repository)
+- **Classificação**: 3 classes (Ruim ≤5 / Médio 6 / Bom ≥7)
+- **Features**: 11 químicas + 1 categórica (red/white) one-hot encoded = **13 features totais**
+- **Dataset**: Wine Quality (UCI ML Repository) - 6.497 amostras
+- **Logging**: Cada predição salva em Supabase + MLflow remoto em DagsHub
 
 ## 🚀 Deploy no Render
 
@@ -119,7 +120,7 @@ dvc repro
 # ✅ Confusion matrices e ROC curves
 ```
 
-### Streamlit Local
+### Streamlit UI (Interface Principal)
 
 ```bash
 cd wine_project
@@ -128,14 +129,38 @@ streamlit run streamlit_ui.py --server.port=8501
 
 Acesse em: **http://localhost:8501**
 
-### FastAPI Local
+**Layout da Interface:**
 
-```bash
-cd wine_project
-python main.py
+🔙 **Sidebar - Modelo em Uso**
+```
+📛 Nome: SMOTE_random_forest
+⚙️ Estratégia: SMOTE
+🧠 Algoritmo: random_forest
+
+📊 Métricas de Validação:
+  ✅ Acurácia: 0.6854
+  🎯 F1-Score: 0.6845
+  📈 Recall: 0.6800
+  🔍 Precisão: 0.6890
+
+🏆 Métricas de Teste:
+  ✅ Acurácia: 0.6850
+  🎯 F1-Score: 0.6933
+  📈 Recall: 0.6900
+  🔍 Precisão: 0.6970
 ```
 
-Acesse em: **http://localhost:8000/docs**
+📱 **Aba 1 - 🔮 Predição**
+- Seletor de tipo: Red 🍷 / White 🥂
+- 11 sliders para features químicas
+- Botão "Classificar" → Predição em tempo real
+- Gráfico de probabilidades por classe
+- **Auto-save**: Predição registrada em Supabase com timestamp
+
+📜 **Aba 2 - Histórico**
+- Últimas 20 predições (sessão atual)
+- Sincronização com API (se disponível)
+- Visualização de tendências
 
 ## 📈 Resultados
 
@@ -158,54 +183,63 @@ Médio (1):  44%  (2836 amostras)
 Bom (2):    20%  (1277 amostras)
 ```
 
-## 🔧 Endpoints FastAPI
+## 🏗️ Arquitetura
 
-```bash
-POST /predict
-{
-  "fixed_acidity": 7.4,
-  "volatile_acidity": 0.7,
-  "citric_acid": 0.0,
-  "residual_sugar": 1.9,
-  "chlorides": 0.076,
-  "free_sulfur_dioxide": 11.0,
-  "total_sulfur_dioxide": 34.0,
-  "density": 0.9978,
-  "ph": 3.51,
-  "sulphates": 0.56,
-  "alcohol": 9.4,
-  "type": "red"
-}
+```
+┌─────────────────────────────────────────────────────────────┐
+│              Streamlit UI (Port 8501)                        │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  SIDEBAR: Model Metadata + Performance Metrics      │   │
+│  │  • Model: SMOTE_random_forest                       │   │
+│  │  • Strategy: SMOTE (Over-sampling)                  │   │
+│  │  • Val F1: 0.6845 | Test F1: 0.6933                │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                              │
+│  ┌──────────────────┐  ┌──────────────────┐                │
+│  │ 🔮 Predição     │  │ 📜 Histórico     │                │
+│  │ • Type Selector │  │ • Last 20 Preds  │                │
+│  │ • 11 Sliders    │  │ • Timestamps     │                │
+│  │ • Probability   │  │ • Trends         │                │
+│  │   Chart         │  │                  │                │
+│  └──────────────────┘  └──────────────────┘                │
+└─────────────────────────────────────────────────────────────┘
+         ↓ (Auto-save each prediction)
+┌─────────────────────────────────────────────────────────────┐
+│  Local Model Inference (joblib)                             │
+│  ├─ One-hot Encoding: type → [type_red, type_white]       │
+│  ├─ Log Transforms: sulphates, chlorides, residual_sugar  │
+│  ├─ StandardScaler: All features                           │
+│  └─ Best Model: SMOTE_random_forest.pkl                    │
+└─────────────────────────────────────────────────────────────┘
+         ↓ Predictions logged        ↑ Training data
+┌─────────────────────────────────────────────────────────────┐
+│  Supabase PostgreSQL (Auditoria)                            │
+│  └─ wine_predictions table: features, quality, probs, ts   │
+└─────────────────────────────────────────────────────────────┘
 
-Response:
-{
-  "quality": 2,
-  "probabilities": {
-    "Ruim": 0.15,
-    "Médio": 0.25,
-    "Bom": 0.60
-  },
-  "model": "wine_SMOTE_random_forest"
-}
+🔄 MLflow Remote Tracking (DagsHub)
+└─ 12 models registered | Best promoted as "champion"
 ```
 
 ## 📚 Tecnologias
 
 - **ML**: scikit-learn, xgboost, imblearn (SMOTE/Tomek)
-- **Data**: pandas, duckdb, numpy
-- **Tracking**: MLflow, DagsHub
-- **API**: FastAPI, Uvicorn
-- **UI**: Streamlit
-- **Database**: Supabase (PostgreSQL)
+- **Data**: pandas, numpy
+- **Tracking**: MLflow (Remote to DagsHub), DVC
+- **UI**: Streamlit (Local Inference)
+- **Database**: Supabase PostgreSQL (Predictions Audit)
 - **Deployment**: Docker, Render.com
-- **Version Control**: DVC (Data Version Control)
+- **Version Control**: Git, DVC (Data Version Control)
 
 ## 📝 Notas
 
-- Dataset contém 6.497 amostras com 11 features numéricas + 1 categórica
-- Balanceamento de dados necessário (distribuição desigual)
-- Modelos salvos como joblib para inference rápida
-- Suporte a múltiplas estratégias de balanceamento
+- **Features**: 11 chemical properties + 1 categorical (red/white) one-hot encoded = **13 features totais**
+- **Preprocessing**: Log transforms (sulphates, chlorides, residual_sugar) + StandardScaler normalization
+- **Balanceamento**: SMOTE vs Tomek Links; SMOTE + Random Forest é o melhor performer
+- **Inferência**: Local via joblib (não via API HTTP)
+- **Auditoria**: Todas as predições registradas em Supabase com features, timestamp e probabilidades
+- **MLflow Registry**: 12 modelos treinados; melhor modelo promovido com alias "champion"
+- **DVC + DagsHub**: Versionamento de dados e modelos com integração MLflow remota
 
 ## 👤 Autor
 
