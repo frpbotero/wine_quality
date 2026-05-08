@@ -9,7 +9,8 @@ RUN apt-get update \
 
 # Python deps (API + Streamlit UI)
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir "dvc[http]"
 
 # Copy app files to app directory
 COPY database.py   ./database.py
