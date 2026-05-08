@@ -17,6 +17,7 @@ COPY models.py          ./models.py
 COPY streamlit_ui.py    ./streamlit_ui.py
 COPY supabase_logger.py ./supabase_logger.py
 COPY reports/           ./reports/
+COPY models/           ./models/
 
 # Streamlit (8501)
 EXPOSE 8501
