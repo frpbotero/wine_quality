@@ -1,6 +1,5 @@
 .git
 .gitignore
-.dvc
 .env
 __pycache__
 *.pyc
@@ -12,8 +11,11 @@ venv
 node_modules
 *.log
 Rotatividade-de-clientes-de-telecomunica-es-main/
-wine_project/.dvc/
 wine_project/__pycache__/
 wine_project/data/raw/
 wine_project/mlruns/
 wine_project/.streamlit/
+
+# Ignorar apenas o cache local do DVC (pesado), mas manter a config
+.dvc/cache/
+.dvc/tmp/
