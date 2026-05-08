@@ -290,10 +290,8 @@ with st.sidebar:
     
     training_report = load_training_report()
     evaluation_report = load_evaluation_report()
-    
+
     if training_report:
-        # Encontrar melhor modelo pelo maior F1 de validação
-        # Suporta chaves: val_f1 (classifiers) ou val_binary_f1_weighted_tuned (regressors)
         def _best_f1(metrics: dict) -> float:
             return max(
                 metrics.get("val_f1", 0),
@@ -301,15 +299,33 @@ with st.sidebar:
                 metrics.get("val_binary_f1_weighted", 0),
             )
 
-        best_model_name = max(training_report, key=lambda n: _best_f1(training_report[n]))
-        best_metrics = training_report[best_model_name]
+        # Tenta usar o nome do modelo champion carregado para buscar métricas
+        # O champion tem nome como "wine_Tomek_random_forest"; no report a chave é "Tomek_random_forest"
+        champion_model_name = None
+        try:
+            _, (_, source_msg) = load_model()
+            # source_msg ex: "🏆 MLflow champion: wine_Tomek_random_forest@champion"
+            raw = source_msg.split("champion:")[-1].strip() if "champion:" in source_msg else ""
+            raw = raw.replace("@champion", "").strip()
+            # Remove prefixo "wine_" para casar com chave do training_report
+            key_candidate = raw.removeprefix("wine_") if raw.startswith("wine_") else raw
+            if key_candidate in training_report:
+                champion_model_name = key_candidate
+        except Exception:
+            pass
 
-        # Extrair estratégia e algoritmo do nome (ex: SMOTE_xgboost)
-        parts = best_model_name.split("_", 1)
+        # Fallback: melhor F1 dentre os runs do training_report atual
+        if not champion_model_name:
+            champion_model_name = max(training_report, key=lambda n: _best_f1(training_report[n]))
+
+        best_metrics = training_report[champion_model_name]
+
+        # Extrair estratégia e algoritmo do nome (ex: SMOTE_xgboost → SMOTE / xgboost)
+        parts = champion_model_name.split("_", 1)
         strategy = parts[0] if parts else "Unknown"
         model_type = "_".join(parts[1:]) if len(parts) > 1 else "Unknown"
 
-        st.markdown(f"**📛 Nome:** `{best_model_name}`")
+        st.markdown(f"**📛 Nome:** `{champion_model_name}`")
         st.markdown(f"**⚙️ Estratégia:** `{strategy}`")
         st.markdown(f"**🧠 Algoritmo:** `{model_type}`")
 
@@ -324,10 +340,10 @@ with st.sidebar:
             st.metric("🎯 F1-Score", f"{_best_f1(best_metrics):.4f}")
             st.metric("🔍 Precisão", f"{best_metrics.get('val_precision', 0):.4f}")
 
-        if best_model_name in evaluation_report:
+        if champion_model_name in evaluation_report:
             st.markdown("---")
             st.markdown("#### 🏆 Métricas de Teste")
-            test_metrics = evaluation_report[best_model_name]
+            test_metrics = evaluation_report[champion_model_name]
             col3, col4 = st.columns(2)
             with col3:
                 st.metric("✅ Acurácia", f"{test_metrics.get('test_accuracy', 0):.4f}")
