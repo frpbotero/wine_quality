@@ -19,7 +19,11 @@ from dotenv import load_dotenv
 import supabase_logger
 
 ROOT = Path(__file__).resolve().parent
-load_dotenv(ROOT.parent / ".env")
+# Dev local: carrega .env se existir. Docker: variáveis já estão no ambiente via --env-file.
+for _env_candidate in [ROOT / ".env", Path.cwd() / ".env"]:
+    if _env_candidate.exists():
+        load_dotenv(_env_candidate, override=False)  # override=False: ambiente do container tem prioridade
+        break
 
 MODEL_FALLBACK = ROOT / "models" / "best_model.pkl"
 API_URL = os.getenv("API_URL", "http://localhost:8000")
@@ -27,9 +31,10 @@ EVALUATION_REPORT_PATH = ROOT / "reports" / "evaluation_report.json"
 TRAINING_REPORT_PATH = ROOT / "reports" / "training_report.json"
 
 # MLflow remote tracking (DagsHub)
+# URI é lida do .env (MLFLOW_TRACKING_URI); o fallback usa DAGSHUB_USERNAME + DAGSHUB_REPO_NAME
 MLFLOW_TRACKING_URI = os.getenv(
     "MLFLOW_TRACKING_URI",
-    "https://dagshub.com/frpbotero/wine_project.mlflow"
+    f"https://dagshub.com/{os.getenv('DAGSHUB_USERNAME', 'frpbotero')}/{os.getenv('DAGSHUB_REPO_NAME', 'wine-quality')}.mlflow",
 )
 
 CLASS_LABELS = {0: "🔴 Not Good", 1: "🟢 Good"}
@@ -42,18 +47,43 @@ st.set_page_config(page_title="Wine Quality Classifier", page_icon="🍷", layou
 # ── Model loader ────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Carregando modelo…")
 def load_model():
-    """Carrega o modelo do fallback local (joblib)."""
+    """Tenta carregar o modelo champion do MLflow (DagsHub); fallback para arquivo local."""
+    # 1) Tentar MLflow remoto com autenticação DagsHub
+    try:
+        import mlflow
+        dagshub_token = os.getenv("DAGSHUB_TOKEN", "")
+        dagshub_user  = os.getenv("DAGSHUB_USERNAME", "")
+        if dagshub_token and dagshub_user:
+            os.environ["MLFLOW_TRACKING_USERNAME"] = dagshub_user
+            os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        client = mlflow.tracking.MlflowClient()
+        experiments = client.search_experiments()
+        exp = next((e for e in experiments if e.name == "wine-quality"), None)
+        if exp:
+            runs = client.search_runs(
+                experiment_ids=[exp.experiment_id],
+                order_by=["metrics.val_f1 DESC"],
+                max_results=1,
+            )
+            if runs:
+                best_run = runs[0]
+                model_uri = f"runs:/{best_run.info.run_id}/model"
+                model = mlflow.sklearn.load_model(model_uri)
+                run_name = best_run.data.tags.get("mlflow.runName", best_run.info.run_id[:8])
+                return model, ("mlflow", f"🏆 MLflow champion: {run_name}")
+    except Exception:
+        pass  # falha silenciosa → fallback local
 
+    # 2) Fallback: arquivo local
     if MODEL_FALLBACK.exists():
         try:
             model = joblib.load(MODEL_FALLBACK)
-            return model, f"✅ Carregado: {MODEL_FALLBACK.name}"
+            return model, ("local", f"📂 Fallback local: {MODEL_FALLBACK.name}")
         except Exception as e:
-            st.error(f"Erro ao carregar modelo: {e}")
-            return None, f"❌ Erro ao carregar {MODEL_FALLBACK.name}"
+            return None, ("error", f"❌ Erro ao carregar {MODEL_FALLBACK.name}: {e}")
 
-    st.error("Modelo não encontrado no MLflow nem como fallback local.")
-    return None, "❌ Modelo não disponível"
+    return None, ("error", "❌ Modelo não disponível")
 
 
 @st.cache_data(show_spinner="Carregando relatório de avaliação…")
@@ -71,47 +101,35 @@ def load_training_report() -> dict:
     """Carrega relatório de treinamento (val metrics) do MLflow remoto (DagsHub)."""
     try:
         import mlflow
+        dagshub_token = os.getenv("DAGSHUB_TOKEN", "")
+        dagshub_user  = os.getenv("DAGSHUB_USERNAME", "")
+        if dagshub_token and dagshub_user:
+            os.environ["MLFLOW_TRACKING_USERNAME"] = dagshub_user
+            os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
         client = mlflow.tracking.MlflowClient()
-        
-        # Buscar experiment
+
         experiments = client.search_experiments()
         exp = next((e for e in experiments if e.name == "wine-quality"), None)
-        
-        if not exp:
-            # Fallback para arquivo local
-            if TRAINING_REPORT_PATH.exists():
-                with open(TRAINING_REPORT_PATH) as f:
-                    return json.load(f)
-            return {}
-        
-        # Buscar runs e extrair métricas de validação
-        runs = client.search_runs(exp.experiment_id)
-        report = {}
-        
-        for run in runs:
-            model_name = run.data.tags.get("mlflow.runName", run.info.run_id[:8])
-            
-            # Extrair métricas de validação
-            val_metrics = {
-                k: v for k, v in run.data.metrics.items() 
-                if k.startswith("val_")
-            }
-            
-            if val_metrics:
-                report[model_name] = val_metrics
-        
-        return report if report else (
-            json.load(open(TRAINING_REPORT_PATH)) 
-            if TRAINING_REPORT_PATH.exists() 
-            else {}
-        )
-    except Exception as e:
-        # Fallback silencioso para arquivo local
-        if TRAINING_REPORT_PATH.exists():
-            with open(TRAINING_REPORT_PATH) as f:
-                return json.load(f)
-        return {}
+
+        if exp:
+            runs = client.search_runs(exp.experiment_id)
+            report = {}
+            for run in runs:
+                model_name = run.data.tags.get("mlflow.runName", run.info.run_id[:8])
+                val_metrics = {k: v for k, v in run.data.metrics.items() if k.startswith("val_")}
+                if val_metrics:
+                    report[model_name] = val_metrics
+            if report:
+                return report
+    except Exception:
+        pass
+
+    # Fallback para arquivo local
+    if TRAINING_REPORT_PATH.exists():
+        with open(TRAINING_REPORT_PATH) as f:
+            return json.load(f)
+    return {}
 
 
 FEATURE_ORDER_RAW = [
@@ -154,12 +172,12 @@ def _prepare_features(payload: dict, model=None) -> pd.DataFrame:
     
     # One-hot encoding para 'type' (red/white)
     if "type" in df.columns:
-        df = pd.get_dummies(df, columns=["type"], prefix="type", drop_first=False)
-    
-    # Aplicar as mesmas transformações que em main.py
-    df["sulphates_log"] = np.log1p(df["sulphates"])
-    df["chlorides_log"] = np.log1p(df["chlorides"])
-    df["residual_sugar_log"] = np.log1p(df["residual_sugar"])
+        df = pd.get_dummies(df, columns=["type"], prefix="type", drop_first=False, dtype=float)
+        # pd.get_dummies numa única linha só cria a coluna do tipo presente;
+        # garante que ambas existam para não quebrar o modelo.
+        for col in ("type_red", "type_white"):
+            if col not in df.columns:
+                df[col] = 0.0
     
     if model is not None:
         expected = _get_expected_features(model)
@@ -186,9 +204,9 @@ def _prepare_features(payload: dict, model=None) -> pd.DataFrame:
 
 
 def _predict_local(payload: dict) -> tuple[int, list[float], list[int]]:
-    model, source = load_model()
+    model, (source_type, source_msg) = load_model()
     if model is None:
-        raise RuntimeError(f"Modelo não disponível: {source}")
+        raise RuntimeError(f"Modelo não disponível: {source_msg}")
     features = _prepare_features(payload, model)
     quality = int(model.predict(features)[0])
     proba = list(map(float, model.predict_proba(features)[0]))
@@ -241,8 +259,13 @@ wine_type_label = st.radio("Tipo de vinho", list(WINE_TYPES.keys()), horizontal=
 wine_type = WINE_TYPES[wine_type_label]
 
 try:
-    _, source = load_model()
-    st.sidebar.success(f"✅ Modelo: {source}")
+    _, (source_type, source_msg) = load_model()
+    if source_type == "mlflow":
+        st.sidebar.success(f"✅ Modelo: {source_msg}")
+    elif source_type == "local":
+        st.sidebar.warning(f"⚠️ Modelo: {source_msg}")
+    else:
+        st.sidebar.error(f"Modelo: {source_msg}")
 except Exception as e:
     st.sidebar.error(f"Modelo não disponível: {e}")
 
@@ -340,6 +363,7 @@ with tab_predict:
             "ph": ph,
             "sulphates": sulphates,
             "alcohol": alcohol,
+            "type": wine_type,  # inclui tipo para one-hot encoding
         }
 
         try:

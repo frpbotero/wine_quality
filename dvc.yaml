@@ -29,7 +29,6 @@ stages:
       - data/processed/splits/train.parquet
       - data/processed/splits/val.parquet
       - data/processed/splits/test.parquet
-      - models/preprocessors/preprocessor.joblib
 
   train:
     cmd: python3 src/train.py
@@ -72,8 +71,4 @@ stages:
       - models/trained/Tomek_mlp.joblib
     outs:
       - reports/evaluation_report.json
-    plots:
-      - reports/confusion_matrix_*.png:
-          template: confusion
-      - reports/roc_curve_*.png:
-          template: linear
+

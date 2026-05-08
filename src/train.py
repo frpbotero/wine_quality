@@ -358,10 +358,18 @@ def train() -> None:
 
         metrics_report[run_name] = val_metrics
 
+        # Embrulha preprocessor + clf num Pipeline para predição end-to-end.
+        # O preprocessor já foi fitado em X_train; combinamos aqui para que
+        # predict() receba features brutas (sem pré-escalonamento manual).
+        tomek_pipeline = Pipeline([
+            ("preprocessor", preprocessor_tomek),
+            ("classifier", clf),
+        ])
+
         # ── Save model ─────────────────────────────────────────────────────────
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
         model_path = MODELS_DIR / f"{run_name}.joblib"
-        joblib.dump(clf, model_path)
+        joblib.dump(tomek_pipeline, model_path)
 
         with mlflow.start_run(run_name=run_name) as run:
             mlflow.log_param("strategy", STRATEGY)
@@ -370,17 +378,13 @@ def train() -> None:
             mlflow.log_param("val_samples", int(len(X_val_trans)))
             mlflow.log_metrics(val_metrics)
             mlflow.sklearn.log_model(
-                clf,
+                tomek_pipeline,
                 artifact_path="model",
                 registered_model_name=f"wine_{STRATEGY}_{clf_name}",
             )
-            mlflow.sklearn.log_model(
-                preprocessor_tomek,
-                artifact_path="preprocessor",
-            )
             if val_metrics["val_f1"] > best_score:
                 best_score = val_metrics["val_f1"]
-                best_model = clf  # type: ignore[assignment]
+                best_model = tomek_pipeline
                 best_run_id = run.info.run_id
                 best_registered = f"wine_{STRATEGY}_{clf_name}"
 

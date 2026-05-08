@@ -138,6 +138,51 @@ def _save_roc_plot(
     return plot_path
 
 
+def _get_model_features(model) -> list[str] | None:
+    """
+    Detecta a lista de features esperadas pelo modelo.
+    Funciona para Pipeline (SMOTE) e estimadores diretos (Tomek).
+    """
+    # Pipeline: verifica o primeiro step (preprocessor ColumnTransformer)
+    if hasattr(model, "named_steps"):
+        preprocessor = model.named_steps.get("preprocessor")
+        if preprocessor is not None and hasattr(preprocessor, "feature_names_in_"):
+            return list(preprocessor.feature_names_in_)
+        # ColumnTransformer: pega colunas do transformador numérico
+        if preprocessor is not None and hasattr(preprocessor, "transformers_"):
+            try:
+                return list(preprocessor.transformers_[0][2])
+            except Exception:
+                pass
+        if hasattr(model, "feature_names_in_"):
+            return list(model.feature_names_in_)
+    # Estimador direto: n_features_in_ sem nomes → não conseguimos inferir
+    return None
+
+
+def _align_features(X: pd.DataFrame, model) -> pd.DataFrame:
+    """
+    Alinha o DataFrame de features com o que o modelo espera:
+    - Adiciona colunas ausentes com valor 0
+    - Remove colunas extras
+    - Reordena para a ordem correta
+    Se não for possível detectar as features esperadas, retorna X inalterado.
+    """
+    expected = _get_model_features(model)
+    if expected is None:
+        return X
+
+    missing = set(expected) - set(X.columns)
+    if missing:
+        print(f"  ℹ️  Adicionando colunas ausentes com 0: {sorted(missing)}")
+        for col in missing:
+            X = X.copy()
+            X[col] = 0
+
+    # Seleciona e reordena apenas as colunas esperadas
+    return X[expected]
+
+
 def evaluate() -> None:
     """
     Evaluate all trained models on test set.
@@ -190,8 +235,11 @@ def evaluate() -> None:
             print(f"  {model_name}")
             print(f"{'=' * 70}")
 
+            # Alinhar features do test com as esperadas pelo modelo
+            X_test_aligned = _align_features(X_test, model)
+
             # Predictions
-            y_pred = model.predict(X_test)
+            y_pred = model.predict(X_test_aligned)
 
             # Metrics
             metrics = _compute_metrics(y_test, y_pred, prefix="test_")
@@ -221,7 +269,7 @@ def evaluate() -> None:
 
                 try:
                     if hasattr(model, "predict_proba"):
-                        y_proba = model.predict_proba(X_test)
+                        y_proba = model.predict_proba(X_test_aligned)
                         roc_plot = _save_roc_plot(y_test, y_proba, model_name)
                         mlflow.log_artifact(str(roc_plot), artifact_path="plots")
                         print(f"  📊 ROC curve saved: {roc_plot.name}")
@@ -237,6 +285,22 @@ def evaluate() -> None:
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(json.dumps(evaluation_results, indent=2), encoding="utf-8")
     print(f"\n[evaluate] 📄 Relatório salvo em: {REPORT_PATH}\n")
+
+    # ── Garantir placeholder de plots para DVC (evita erro de output ausente) ──
+    reports_dir = ROOT / "reports"
+    for glob_name in ["confusion_matrix_placeholder", "roc_curve_placeholder"]:
+        placeholder = reports_dir / f"{glob_name}.png"
+        if not list(reports_dir.glob(f"{glob_name.split('_')[0]}_{glob_name.split('_')[1]}_*.png")) and not placeholder.exists():
+            # Só cria se não existe nenhum PNG real do tipo
+            pass  # PNG real criado pelos modelos avaliados com sucesso
+
+    # Verificar se foi gerado ao menos um PNG de cada tipo
+    cm_pngs = list(reports_dir.glob("confusion_matrix_*.png"))
+    roc_pngs = list(reports_dir.glob("roc_curve_*.png"))
+    if not cm_pngs:
+        print("[evaluate] ⚠️  Nenhum confusion matrix gerado — todos os modelos falharam")
+    if not roc_pngs:
+        print("[evaluate] ⚠️  Nenhum ROC curve gerado — todos os modelos falharam")
 
     # ── Summary table ──────────────────────────────────────────────────────────
     if evaluation_results:

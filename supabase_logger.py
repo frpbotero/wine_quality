@@ -17,9 +17,18 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+
+# Dev local: carrega .env se existir. Docker: variáveis já estão no ambiente via --env-file.
+_pkg_root = Path(__file__).resolve().parent
+for _env_candidate in [_pkg_root / ".env", Path.cwd() / ".env"]:
+    if _env_candidate.exists():
+        load_dotenv(_env_candidate, override=False)
+        break
 
 logger = logging.getLogger(__name__)
 

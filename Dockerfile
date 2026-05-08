@@ -18,8 +18,9 @@ COPY main.py       ./main.py
 COPY streamlit_ui.py ./streamlit_ui.py
 COPY supabase_logger.py ./supabase_logger.py
 
-# Copy trained models
+# Copy trained models and evaluation reports
 COPY models/ ./models/
+COPY reports/ ./reports/
 
 # FastAPI (8000) + Streamlit (8501)
 EXPOSE 8000 8501
