@@ -45,9 +45,8 @@ st.set_page_config(page_title="Wine Quality Classifier", page_icon="🍷", layou
 # ── Model loader ────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Carregando modelo…")
 def load_model():
-    """Tenta carregar o modelo do MLflow Registry (DagsHub); fallback para arquivo local."""
+    """Tenta carregar o modelo @champion do MLflow Registry (DagsHub); fallback para arquivo local."""
     mlflow_error = None
-    # 1) Tentar MLflow Model Registry — mais confiável que buscar por runs
     try:
         import mlflow
         import mlflow.sklearn
@@ -55,23 +54,42 @@ def load_model():
 
         dagshub_token = os.getenv("DAGSHUB_TOKEN", "")
         dagshub_user  = os.getenv("DAGSHUB_USERNAME", "")
-        model_name    = os.getenv("MLFLOW_MODEL_NAME", "wine-quality-binary")
 
-        if dagshub_token and dagshub_user:
-            os.environ["MLFLOW_TRACKING_USERNAME"] = dagshub_user
-            os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
-            mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        if not (dagshub_token and dagshub_user):
+            raise ValueError("DAGSHUB_TOKEN ou DAGSHUB_USERNAME não configurados")
 
-            def _load():
-                model_uri = f"models:/{model_name}/latest"
-                return mlflow.sklearn.load_model(model_uri), model_name
+        os.environ["MLFLOW_TRACKING_USERNAME"] = dagshub_user
+        os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_load)
-                model, name = future.result(timeout=15)
-                return model, ("mlflow", f"🏆 MLflow Registry: {name}")
+        def _load():
+            client = mlflow.tracking.MlflowClient()
+            # Percorre todos os modelos registrados e busca o que tem alias @champion
+            for rm in client.search_registered_models():
+                aliases = rm.aliases if hasattr(rm, "aliases") else {}
+                # aliases é um dict {alias: version} ou pode estar em latest_versions
+                if "champion" in aliases:
+                    model_uri = f"models:/{rm.name}@champion"
+                    model = mlflow.sklearn.load_model(model_uri)
+                    return model, f"{rm.name}@champion"
+            # Fallback: tenta buscar via get_model_version_by_alias em cada modelo
+            for rm in client.search_registered_models():
+                try:
+                    mv = client.get_model_version_by_alias(rm.name, "champion")
+                    model_uri = f"models:/{rm.name}@champion"
+                    model = mlflow.sklearn.load_model(model_uri)
+                    return model, f"{rm.name} v{mv.version}"
+                except Exception:
+                    continue
+            raise ValueError("Nenhum modelo com alias @champion encontrado no Registry")
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_load)
+            model, name = future.result(timeout=20)
+            return model, ("mlflow", f"🏆 MLflow champion: {name}")
+
     except FuturesTimeout:
-        mlflow_error = "Timeout ao conectar no MLflow (>15s)"
+        mlflow_error = "Timeout ao conectar no MLflow (>20s)"
     except Exception as e:
         mlflow_error = str(e)
 
