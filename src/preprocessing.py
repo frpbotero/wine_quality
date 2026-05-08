@@ -43,11 +43,10 @@ def preprocess(
                     alcohol,
                     type,  -- Coluna categórica (red/white)
                     
-                    -- Fusão de classes: 0=Ruim (<=5), 1=Médio (6), 2=Bom (>=7)
+                    -- Fusão de classes: 0=Ruim (<7), 1=Bom (>=7)
                     CASE
-                        WHEN quality <= 5 THEN 0
-                        WHEN quality = 6  THEN 1
-                        ELSE 2
+                        WHEN quality < 7 THEN 0
+                        ELSE 1
                     END AS quality
                 FROM raw
             )
@@ -60,7 +59,7 @@ def preprocess(
     con.close()
     print(f"[preprocessing] Dataset processado salvo em: {processed_path}")
     print(
-        "[preprocessing] Classes: 0=Ruim (quality<=5)  1=Médio (quality=6)  2=Bom (quality>=7)"
+        "[preprocessing] Classes:  0=Ruim (<7), 1=Bom (>=7)"
     )
     print("[preprocessing] Features: 11 originais + 1 categórica (type: red/white)")
 

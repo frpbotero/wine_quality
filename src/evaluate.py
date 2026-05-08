@@ -33,7 +33,7 @@ MODELS_DIR = ROOT / "models" / "trained"
 REPORT_PATH = ROOT / "reports" / "evaluation_report.json"
 
 TARGET = "quality"
-CLASS_NAMES = ["Ruim(0)", "Médio(1)", "Bom(2)"]
+CLASS_NAMES = ["Ruim(0)", "Bom(1)"]
 
 
 def _setup_mlflow() -> None:
@@ -110,10 +110,10 @@ def _save_roc_plot(
     """Generate and save ROC curve plot (one-vs-rest for multiclass)."""
     from sklearn.preprocessing import label_binarize
 
-    y_bin = label_binarize(y_true, classes=[0, 1, 2])
+    y_bin = label_binarize(y_true, classes=list(range(len(CLASS_NAMES))))
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    for i in range(3):
+    for i in range(len(CLASS_NAMES)):
         try:
             fpr, tpr, _ = roc_curve(y_bin[:, i], y_pred_proba[:, i])
             auc = roc_auc_score(y_bin[:, i], y_pred_proba[:, i])

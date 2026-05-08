@@ -44,9 +44,9 @@ REPORT_PATH = ROOT / "reports" / "training_report.json"
 
 TARGET = "quality"
 
-# Classes: 0=Ruim (quality<=5), 1=Médio (quality=6), 2=Bom (quality>=7)
+# Classes: 0=Ruim (<7), 1=Bom (>=7) — binário
 # Features: 11 químicas + type (red/white) one-hot encoded = 13 features totais
-CLASS_NAMES = ["Ruim(0)", "Médio(1)", "Bom(2)"]
+CLASS_NAMES = ["Ruim(0)", "Bom(1)"]
 
 
 def _setup_mlflow() -> None:
