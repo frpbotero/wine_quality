@@ -1,4 +1,12 @@
 stages:
+  prepare_supabase_predictions_table:
+    cmd: python3 src/prepare_supabase_predictions_table.py
+    deps:
+      - src/prepare_supabase_predictions_table.py
+      - supabase_logger.py
+    outs:
+      - reports/supabase_predictions_table_ready.txt
+
   ingest:
     cmd: python3 src/ingestion.py
     outs:

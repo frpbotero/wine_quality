@@ -5,52 +5,52 @@ stages:
     outs:
     - path: data/raw/wine_quality.csv
       hash: md5
-      md5: fb73f4f9ea1741d508cfd2db676fc352
-      size: 415030
+      md5: a543a802db68dbdbbdb962fae7606144
+      size: 446071
   preprocess:
     cmd: python3 src/preprocessing.py
     deps:
     - path: data/raw/wine_quality.csv
       hash: md5
-      md5: fb73f4f9ea1741d508cfd2db676fc352
-      size: 415030
+      md5: a543a802db68dbdbbdb962fae7606144
+      size: 446071
     - path: src/preprocessing.py
       hash: md5
-      md5: 47462a541215bf7cb4c71c413187365e
-      size: 2091
+      md5: e5d6c8ce8df6e64584f62fc91041f1b4
+      size: 1990
     outs:
     - path: data/processed/wine_processed.parquet
       hash: md5
-      md5: a71c65eefee5169cd481918ea39d65c0
-      size: 97219
+      md5: 49540f26df2c069af34a373f4164299f
+      size: 96761
   prepare:
     cmd: python3 src/prepare_data.py
     deps:
     - path: data/processed/wine_processed.parquet
       hash: md5
-      md5: a71c65eefee5169cd481918ea39d65c0
-      size: 97219
+      md5: 49540f26df2c069af34a373f4164299f
+      size: 96761
     - path: src/prepare_data.py
       hash: md5
-      md5: 1a9edb79f5dee7a92e156f38014b391b
-      size: 4259
+      md5: de391d83b7175c3419f031d949ff3216
+      size: 4583
     outs:
     - path: data/processed/splits/test.parquet
       hash: md5
-      md5: dfefd6a15061cf5a79585bfc106e9491
-      size: 35708
+      md5: f2e6cae105dc5f58d6cb9b433da1b019
+      size: 35624
     - path: data/processed/splits/train.parquet
       hash: md5
-      md5: b9de0c7360c08777d807854f8de5731a
-      size: 69649
+      md5: 8da4b578491f291fb9eb448d256637e7
+      size: 69717
     - path: data/processed/splits/val.parquet
       hash: md5
-      md5: 3745b09e44632b36befc2ea9eb0706b7
-      size: 35581
+      md5: 45d6126a9a9fa583be754fd1336c08c3
+      size: 35314
     - path: models/preprocessors/preprocessor.joblib
       hash: md5
-      md5: 638e6eab6578b0b8bbe05a956c70fb7d
-      size: 2286
+      md5: 3969f09acfd18a5fa2b8bd288e2710d3
+      size: 2318
   train:
     cmd: python3 src/train.py
     deps:

@@ -32,7 +32,7 @@ MLFLOW_TRACKING_URI = os.getenv(
     "https://dagshub.com/frpbotero/wine_project.mlflow"
 )
 
-CLASS_LABELS = {0: "🔴 Ruim", 1: "🟡 Médio", 2: "🟢 Bom"}
+CLASS_LABELS = {0: "🔴 Not Good", 1: "🟢 Good"}
 
 WINE_TYPES = {"🍷 Tinto": "red", "🥂 Branco": "white"}
 
@@ -254,47 +254,49 @@ with st.sidebar:
     evaluation_report = load_evaluation_report()
     
     if training_report:
-        # Encontrar melhor modelo
-        best_model_name = None
-        best_f1 = 0
-        for name, metrics in training_report.items():
-            if metrics.get("val_f1", 0) > best_f1:
-                best_f1 = metrics.get("val_f1", 0)
-                best_model_name = name
-        
-        if best_model_name:
-            # Extrair nome e estratégia
-            parts = best_model_name.split("_", 1)
-            strategy = parts[0] if parts else "Unknown"
-            model_type = "_".join(parts[1:]) if len(parts) > 1 else "Unknown"
-            
-            st.markdown(f"**📛 Nome:** `{best_model_name}`")
-            st.markdown(f"**⚙️ Estratégia:** `{strategy}`")
-            st.markdown(f"**🧠 Algoritmo:** `{model_type}`")
-            
+        # Encontrar melhor modelo pelo maior F1 de validação
+        # Suporta chaves: val_f1 (classifiers) ou val_binary_f1_weighted_tuned (regressors)
+        def _best_f1(metrics: dict) -> float:
+            return max(
+                metrics.get("val_f1", 0),
+                metrics.get("val_binary_f1_weighted_tuned", 0),
+                metrics.get("val_binary_f1_weighted", 0),
+            )
+
+        best_model_name = max(training_report, key=lambda n: _best_f1(training_report[n]))
+        best_metrics = training_report[best_model_name]
+
+        # Extrair estratégia e algoritmo do nome (ex: SMOTE_xgboost)
+        parts = best_model_name.split("_", 1)
+        strategy = parts[0] if parts else "Unknown"
+        model_type = "_".join(parts[1:]) if len(parts) > 1 else "Unknown"
+
+        st.markdown(f"**📛 Nome:** `{best_model_name}`")
+        st.markdown(f"**⚙️ Estratégia:** `{strategy}`")
+        st.markdown(f"**🧠 Algoritmo:** `{model_type}`")
+
+        st.markdown("---")
+        st.markdown("#### 📊 Métricas de Validação")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("✅ Acurácia", f"{best_metrics.get('val_accuracy', 0):.4f}")
+            st.metric("📈 Recall", f"{best_metrics.get('val_recall', 0):.4f}")
+        with col2:
+            st.metric("🎯 F1-Score", f"{_best_f1(best_metrics):.4f}")
+            st.metric("🔍 Precisão", f"{best_metrics.get('val_precision', 0):.4f}")
+
+        if best_model_name in evaluation_report:
             st.markdown("---")
-            st.markdown("#### 📊 Métricas de Validação")
-            
-            train_metrics = training_report[best_model_name]
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("✅ Acurácia", f"{train_metrics.get('val_accuracy', 0):.4f}")
-                st.metric("📈 Recall", f"{train_metrics.get('val_recall', 0):.4f}")
-            with col2:
-                st.metric("🎯 F1-Score", f"{train_metrics.get('val_f1', 0):.4f}")
-                st.metric("🔍 Precisão", f"{train_metrics.get('val_precision', 0):.4f}")
-            
-            if best_model_name in evaluation_report:
-                st.markdown("---")
-                st.markdown("#### 🏆 Métricas de Teste")
-                test_metrics = evaluation_report[best_model_name]
-                col3, col4 = st.columns(2)
-                with col3:
-                    st.metric("✅ Acurácia", f"{test_metrics.get('test_accuracy', 0):.4f}")
-                    st.metric("📈 Recall", f"{test_metrics.get('test_recall', 0):.4f}")
-                with col4:
-                    st.metric("🎯 F1-Score", f"{test_metrics.get('test_f1', 0):.4f}")
-                    st.metric("🔍 Precisão", f"{test_metrics.get('test_precision', 0):.4f}")
+            st.markdown("#### 🏆 Métricas de Teste")
+            test_metrics = evaluation_report[best_model_name]
+            col3, col4 = st.columns(2)
+            with col3:
+                st.metric("✅ Acurácia", f"{test_metrics.get('test_accuracy', 0):.4f}")
+                st.metric("📈 Recall", f"{test_metrics.get('test_recall', 0):.4f}")
+            with col4:
+                st.metric("🎯 F1-Score", f"{test_metrics.get('test_f1', 0):.4f}")
+                st.metric("🔍 Precisão", f"{test_metrics.get('test_precision', 0):.4f}")
     else:
         st.info("📊 Execute `python src/train.py` para gerar relatório.")
 
@@ -375,14 +377,18 @@ with tab_predict:
                     CLASS_LABELS.get(classes[i], str(classes[i])): proba[i]
                     for i in range(len(proba))
                 }
-                supabase_logger.log_prediction(
-                    features=payload,
+                payload_with_type = {**payload, "type": wine_type}
+                ok = supabase_logger.log_prediction(
+                    features=payload_with_type,
                     predicted_quality=quality,
                     quality_label=label.replace("🔴 ", "").replace("🟡 ", "").replace("🟢 ", ""),
                     probabilities=proba_dict,
-                    elapsed_ms=0
+                    elapsed_ms=0,
                 )
-                st.success("✅ Predição salva no Supabase!")
+                if ok:
+                    st.success("✅ Predição salva no Supabase!")
+                else:
+                    st.warning(f"⚠️ Predição não salva: {supabase_logger.get_last_error()}")
             except Exception as e:
                 st.warning(f"⚠️ Não foi possível salvar no Supabase: {e}")
                 

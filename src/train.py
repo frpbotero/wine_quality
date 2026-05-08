@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 
+import duckdb
 import joblib
 import mlflow
 import mlflow.sklearn
@@ -47,6 +48,107 @@ TARGET = "quality"
 # Classes: 0=Ruim (<7), 1=Bom (>=7) — binário
 # Features: 11 químicas + type (red/white) one-hot encoded = 13 features totais
 CLASS_NAMES = ["Ruim(0)", "Bom(1)"]
+
+
+# ── DuckDB helpers ─────────────────────────────────────────────────────────────
+
+def _load_splits_via_duckdb() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Carrega os splits de treino e validação usando DuckDB.
+
+    Estratégia (em ordem de prioridade):
+    1. Postgres do Supabase via DuckDB postgres extension (DATABASE_URL).
+       Executa o mesmo SQL de preprocessing inline, sem depender do parquet.
+    2. Fallback: lê os parquets locais via DuckDB (equivalente a pd.read_parquet).
+    """
+    load_dotenv(ROOT / ".env")
+    db_url = (os.getenv("DATABASE_URL") or "").strip().strip('"').strip("'")
+    table = os.getenv("SUPABASE_TABLE", "wine_quality")
+
+    if db_url and (db_url.startswith("postgresql://") or db_url.startswith("postgres://")):
+        print(f"[train] 🦆 DuckDB: conectando ao Supabase Postgres ({table})…")
+        try:
+            con = duckdb.connect()
+            con.execute("INSTALL postgres; LOAD postgres;")
+            con.execute(f"ATTACH '{db_url}' AS supabase (TYPE POSTGRES, READ_ONLY);")
+
+            # Preprocessamento inline no DuckDB (mesmo critério do preprocessing.py)
+            query = f"""
+            WITH src AS (
+                SELECT
+                    "fixed_acidity",
+                    "volatile_acidity",
+                    "citric_acid",
+                    "residual_sugar",
+                    "chlorides",
+                    "free_sulfur_dioxide",
+                    "total_sulfur_dioxide",
+                    "density",
+                    "ph",
+                    "sulphates",
+                    "alcohol",
+                    "type",
+                    CASE WHEN CAST("quality" AS INTEGER) < 7 THEN 0 ELSE 1 END AS quality
+                FROM supabase.public."{table}"
+                WHERE quality IS NOT NULL
+            )
+            SELECT * FROM src
+            """
+            df = con.execute(query).df()
+            con.close()
+
+            print(f"[train] 🦆 DuckDB: {len(df)} linhas carregadas do Supabase")
+
+            # Remover linhas com NaN nas features numéricas
+            before = len(df)
+            num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            df = df.dropna(subset=[c for c in num_cols if c != TARGET])
+            dropped = before - len(df)
+            if dropped:
+                print(f"[train] ⚠️  {dropped} linhas removidas por NaN nas features")
+
+            # One-hot para 'type'
+            if "type" in df.columns:
+                df = pd.get_dummies(df, columns=["type"], prefix="type", drop_first=False)
+
+            X = df.drop(columns=[TARGET])
+            y = df[TARGET].astype(int)
+
+            from sklearn.model_selection import train_test_split
+            X_temp, X_test, y_temp, y_test = train_test_split(
+                X, y, test_size=0.20, random_state=42, stratify=y
+            )
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_temp, y_temp, test_size=0.25, random_state=42, stratify=y_temp
+            )
+
+            train_df = X_train.copy(); train_df[TARGET] = y_train.values
+            val_df = X_val.copy(); val_df[TARGET] = y_val.values
+
+            print(f"[train] DuckDB split: treino={len(train_df)} | val={len(val_df)}")
+            return train_df, val_df
+
+        except Exception as exc:
+            print(f"[train] ⚠️  DuckDB/Supabase falhou ({exc}). Usando parquets locais…")
+
+    # Fallback: parquets locais via DuckDB
+    train_path = str(SPLITS_DIR / "train.parquet")
+    val_path = str(SPLITS_DIR / "val.parquet")
+
+    if not Path(train_path).exists() or not Path(val_path).exists():
+        raise FileNotFoundError(
+            "Splits não encontrados. Execute 'python src/prepare_data.py' primeiro.\n"
+            f"  Train: {train_path}\n"
+            f"  Val:   {val_path}"
+        )
+
+    print("[train] 🦆 DuckDB: lendo parquets locais…")
+    con = duckdb.connect()
+    train_df = con.execute(f"SELECT * FROM read_parquet('{train_path}')").df()
+    val_df = con.execute(f"SELECT * FROM read_parquet('{val_path}')").df()
+    con.close()
+    print(f"[train] DuckDB parquet: treino={len(train_df)} | val={len(val_df)}")
+    return train_df, val_df
 
 
 def _setup_mlflow() -> None:
@@ -127,19 +229,8 @@ def _promote_best(registered_name: str, best_run_id: str) -> None:
 def train() -> None:
     _setup_mlflow()
 
-    # ── Load preprocessed splits ───────────────────────────────────────────────
-    train_path = SPLITS_DIR / "train.parquet"
-    val_path = SPLITS_DIR / "val.parquet"
-
-    if not train_path.exists() or not val_path.exists():
-        raise FileNotFoundError(
-            f"Splits not found. Run 'python src/prepare_data.py' first.\n"
-            f"  Train: {train_path}\n"
-            f"  Val:   {val_path}"
-        )
-
-    train_df = pd.read_parquet(train_path)
-    val_df = pd.read_parquet(val_path)
+    # ── Load preprocessed splits via DuckDB ────────────────────────────────────
+    train_df, val_df = _load_splits_via_duckdb()
 
     col_names = train_df.drop(columns=[TARGET]).columns.tolist()
 
@@ -148,6 +239,18 @@ def train() -> None:
 
     X_val = val_df.drop(columns=[TARGET])
     y_val = val_df[TARGET].values.astype(int)
+
+    # ── Garantir sem NaN (imputação pela mediana — sem data leakage) ───────────
+    from sklearn.impute import SimpleImputer
+    _imputer = SimpleImputer(strategy="median")
+    X_train = pd.DataFrame(_imputer.fit_transform(X_train), columns=col_names)
+    X_val = pd.DataFrame(_imputer.transform(X_val), columns=col_names)
+
+    nan_count = int(pd.DataFrame(X_train).isna().sum().sum())
+    if nan_count == 0:
+        print("[train] ✅ Sem NaN após imputação")
+    else:
+        print(f"[train] ⚠️  Ainda há {nan_count} NaN após imputação — verifique os dados")
 
     print("[train] Splits carregados:")
     print(f"  Treino: {X_train.shape}")
