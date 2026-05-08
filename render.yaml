@@ -4,13 +4,6 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
 
-    # Build Args — disponíveis APENAS durante o docker build (dvc pull)
-    dockerBuildArgs:
-      - key: DAGSHUB_USERNAME
-        sync: false
-      - key: DAGSHUB_TOKEN
-        sync: false
-
     # Environment variables — disponíveis em RUNTIME
     envVars:
       - key: SUPABASE_URL
