@@ -47,6 +47,7 @@ st.set_page_config(page_title="Wine Quality Classifier", page_icon="🍷", layou
 def load_model():
     """Tenta carregar o modelo champion do MLflow (DagsHub); fallback para arquivo local."""
     # 1) Tentar MLflow remoto com autenticação DagsHub
+    mlflow_error = None
     try:
         import mlflow
         dagshub_token = os.getenv("DAGSHUB_TOKEN", "")
@@ -70,18 +71,19 @@ def load_model():
                 model = mlflow.sklearn.load_model(model_uri)
                 run_name = best_run.data.tags.get("mlflow.runName", best_run.info.run_id[:8])
                 return model, ("mlflow", f"🏆 MLflow champion: {run_name}")
-    except Exception:
-        pass  # falha silenciosa → fallback local
+    except Exception as e:
+        mlflow_error = str(e)
 
     # 2) Fallback: arquivo local
     if MODEL_FALLBACK.exists():
         try:
             model = joblib.load(MODEL_FALLBACK)
-            return model, ("local", f"📂 Fallback local: {MODEL_FALLBACK.name}")
+            suffix = f" (MLflow indisponível: {mlflow_error})" if mlflow_error else ""
+            return model, ("local", f"📂 Fallback local: {MODEL_FALLBACK.name}{suffix}")
         except Exception as e:
             return None, ("error", f"❌ Erro ao carregar {MODEL_FALLBACK.name}: {e}")
 
-    return None, ("error", "❌ Modelo não disponível")
+    return None, ("error", f"❌ Modelo não disponível. MLflow: {mlflow_error}")
 
 
 @st.cache_data(show_spinner="Carregando relatório de avaliação…")
