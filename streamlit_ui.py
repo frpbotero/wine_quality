@@ -1,6 +1,5 @@
 """
 Streamlit UI — Wine Quality Classifier (3 classes: Ruim / Médio / Bom)
-Iniciado como subprocesso pelo FastAPI lifespan em main.py.
 """
 
 from __future__ import annotations
@@ -26,7 +25,6 @@ for _env_candidate in [ROOT / ".env", Path.cwd() / ".env"]:
         break
 
 MODEL_FALLBACK = ROOT / "models" / "best_model.pkl"
-API_URL = os.getenv("API_URL", "http://localhost:8000")
 EVALUATION_REPORT_PATH = ROOT / "reports" / "evaluation_report.json"
 TRAINING_REPORT_PATH = ROOT / "reports" / "training_report.json"
 
@@ -230,28 +228,6 @@ RAW_FEATURES = [
 ]
 
 
-def _predict_api(payload: dict) -> tuple[int, list[float], list[int]]:
-    api_payload = {k: payload[k] for k in RAW_FEATURES}
-    resp = requests.post(f"{API_URL}/predict", json=api_payload, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-    quality = data["quality"]
-    probs_dict: dict = data["probabilities"]
-    # API labels (no emoji) → int class index via CLASS_LABELS_API
-    # CLASS_LABELS values may have emojis; strip to match API output
-    api_label_to_int = {v.split(" ", 1)[-1].strip(): k for k, v in CLASS_LABELS.items()}
-    # Also try exact match first
-    api_label_to_int.update({v: k for k, v in CLASS_LABELS.items()})
-    classes = sorted(
-        api_label_to_int[lbl] for lbl in probs_dict if lbl in api_label_to_int
-    )
-    if not classes:
-        # Fallback: use positional order returned by the API
-        classes = list(range(len(probs_dict)))
-    proba = [list(probs_dict.values())[i] for i in range(len(classes))]
-    return quality, proba, classes
-
-
 # ── UI ───────────────────────────────────────────────────────────────────────
 st.title("🍷 Wine Quality Classifier")
 
@@ -427,14 +403,4 @@ with tab_history:
             use_container_width=True,
         )
     else:
-        # Tentar buscar histórico da API
-        try:
-            resp = requests.get(f"{API_URL}/simulations?limit=20", timeout=5)
-            resp.raise_for_status()
-            rows = resp.json()
-            if rows:
-                st.dataframe(pd.DataFrame(rows), use_container_width=True)
-            else:
-                st.info("Nenhuma simulação registrada ainda.")
-        except Exception:
-            st.info("Faça uma predição para ver o histórico aqui.")
+        st.info("Nenhuma simulação registrada ainda.")

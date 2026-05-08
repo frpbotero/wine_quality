@@ -14,7 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app files to app directory
 COPY database.py   ./database.py
 COPY models.py     ./models.py
-COPY main.py       ./main.py
 COPY streamlit_ui.py ./streamlit_ui.py
 COPY supabase_logger.py ./supabase_logger.py
 
@@ -22,8 +21,8 @@ COPY supabase_logger.py ./supabase_logger.py
 COPY models/ ./models/
 COPY reports/ ./reports/
 
-# FastAPI (8000) + Streamlit (8501)
-EXPOSE 8000 8501
+# Streamlit (8501)
+EXPOSE 8501
 
 # Start Streamlit with FastAPI
 CMD ["streamlit", "run", "streamlit_ui.py", \
