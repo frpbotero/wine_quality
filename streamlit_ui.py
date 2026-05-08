@@ -45,32 +45,33 @@ st.set_page_config(page_title="Wine Quality Classifier", page_icon="🍷", layou
 # ── Model loader ────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Carregando modelo…")
 def load_model():
-    """Tenta carregar o modelo champion do MLflow (DagsHub); fallback para arquivo local."""
-    # 1) Tentar MLflow remoto com autenticação DagsHub
+    """Tenta carregar o modelo do MLflow Registry (DagsHub); fallback para arquivo local."""
     mlflow_error = None
+    # 1) Tentar MLflow Model Registry — mais confiável que buscar por runs
     try:
         import mlflow
+        import mlflow.sklearn
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+
         dagshub_token = os.getenv("DAGSHUB_TOKEN", "")
         dagshub_user  = os.getenv("DAGSHUB_USERNAME", "")
+        model_name    = os.getenv("MLFLOW_MODEL_NAME", "wine-quality-binary")
+
         if dagshub_token and dagshub_user:
             os.environ["MLFLOW_TRACKING_USERNAME"] = dagshub_user
             os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
-        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-        client = mlflow.tracking.MlflowClient()
-        experiments = client.search_experiments()
-        exp = next((e for e in experiments if e.name == "wine-quality"), None)
-        if exp:
-            runs = client.search_runs(
-                experiment_ids=[exp.experiment_id],
-                order_by=["metrics.val_f1 DESC"],
-                max_results=1,
-            )
-            if runs:
-                best_run = runs[0]
-                model_uri = f"runs:/{best_run.info.run_id}/model"
-                model = mlflow.sklearn.load_model(model_uri)
-                run_name = best_run.data.tags.get("mlflow.runName", best_run.info.run_id[:8])
-                return model, ("mlflow", f"🏆 MLflow champion: {run_name}")
+            mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
+            def _load():
+                model_uri = f"models:/{model_name}/latest"
+                return mlflow.sklearn.load_model(model_uri), model_name
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_load)
+                model, name = future.result(timeout=15)
+                return model, ("mlflow", f"🏆 MLflow Registry: {name}")
+    except FuturesTimeout:
+        mlflow_error = "Timeout ao conectar no MLflow (>15s)"
     except Exception as e:
         mlflow_error = str(e)
 
