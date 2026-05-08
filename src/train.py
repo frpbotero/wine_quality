@@ -169,7 +169,17 @@ def _setup_mlflow() -> None:
         # Fallback to local MLflow
         print("[train] ⚠️  Credenciais DagsHub não encontradas. Usando MLflow local em ./mlruns")
         mlflow.set_tracking_uri("./mlruns")
-    
+
+    # Restore deleted experiment or create a new one
+    client = mlflow.tracking.MlflowClient()
+    existing = client.search_experiments(
+        view_type=mlflow.entities.ViewType.DELETED_ONLY
+    )
+    deleted = [e for e in existing if e.name == experiment]
+    if deleted:
+        client.restore_experiment(deleted[0].experiment_id)
+        print(f"[train] ♻️  Experimento deletado '{experiment}' restaurado.")
+
     mlflow.set_experiment(experiment)
 
 

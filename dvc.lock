@@ -133,7 +133,7 @@ stages:
     outs:
     - path: reports/supabase_predictions_table_ready.txt
       hash: md5
-      md5: 63a7b0b74f5448ad5f8f7453973a05ba
+      md5: 77c430a94cd6d31e167f3eb3f42611cd
       size: 154
   evaluate:
     cmd: python3 src/evaluate.py

@@ -117,7 +117,24 @@ def load_evaluation_report() -> dict:
 
 @st.cache_data(show_spinner="Carregando relatório de treinamento…")
 def load_training_report() -> dict:
-    """Carrega relatório de treinamento (val metrics) do MLflow remoto (DagsHub)."""
+    """Carrega relatório de treinamento (val metrics) do MLflow remoto (DagsHub),
+    com fallback para MLflow local e depois para arquivo JSON."""
+
+    def _extract_report_from_mlflow(client, experiment_name: str) -> dict:
+        experiments = client.search_experiments()
+        exp = next((e for e in experiments if e.name == experiment_name), None)
+        if not exp:
+            return {}
+        runs = client.search_runs(exp.experiment_id)
+        report = {}
+        for run in runs:
+            model_name = run.data.tags.get("mlflow.runName", run.info.run_id[:8])
+            val_metrics = {k: v for k, v in run.data.metrics.items() if k.startswith("val_")}
+            if val_metrics:
+                report[model_name] = val_metrics
+        return report
+
+    # 1) Tenta MLflow remoto (DagsHub)
     try:
         import mlflow
         dagshub_token = os.getenv("DAGSHUB_TOKEN", "")
@@ -125,26 +142,27 @@ def load_training_report() -> dict:
         if dagshub_token and dagshub_user:
             os.environ["MLFLOW_TRACKING_USERNAME"] = dagshub_user
             os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
-        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-        client = mlflow.tracking.MlflowClient()
-
-        experiments = client.search_experiments()
-        exp = next((e for e in experiments if e.name == "wine-quality"), None)
-
-        if exp:
-            runs = client.search_runs(exp.experiment_id)
-            report = {}
-            for run in runs:
-                model_name = run.data.tags.get("mlflow.runName", run.info.run_id[:8])
-                val_metrics = {k: v for k, v in run.data.metrics.items() if k.startswith("val_")}
-                if val_metrics:
-                    report[model_name] = val_metrics
+            mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+            client = mlflow.tracking.MlflowClient()
+            report = _extract_report_from_mlflow(client, "wine-quality")
             if report:
                 return report
     except Exception:
         pass
 
-    # Fallback para arquivo local
+    # 2) Tenta MLflow local (mlruns/)
+    try:
+        import mlflow
+        local_uri = str(ROOT / "mlruns")
+        mlflow.set_tracking_uri(local_uri)
+        client = mlflow.tracking.MlflowClient()
+        report = _extract_report_from_mlflow(client, "wine-quality")
+        if report:
+            return report
+    except Exception:
+        pass
+
+    # 3) Fallback para arquivo JSON gerado pelo train.py
     if TRAINING_REPORT_PATH.exists():
         with open(TRAINING_REPORT_PATH) as f:
             return json.load(f)
