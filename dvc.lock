@@ -1,5 +1,21 @@
 schema: '2.0'
 stages:
+  prepare_supabase_predictions_table:
+    cmd: python3 src/prepare_supabase_predictions_table.py
+    deps:
+    - path: src/prepare_supabase_predictions_table.py
+      hash: md5
+      md5: 715ef830a4735b69b32a666342222952
+      size: 2089
+    - path: supabase_logger.py
+      hash: md5
+      md5: 10981012abe65e891fa083d68741074e
+      size: 7738
+    outs:
+    - path: reports/supabase_predictions_table_ready.txt
+      hash: md5
+      md5: 730dd0653cab6be903cacb0017b3132c
+      size: 154
   ingest:
     cmd: python3 src/ingestion.py
     outs:
@@ -60,7 +76,7 @@ stages:
       size: 32674
     - path: src/train.py
       hash: md5
-      md5: c1db4ab62286ed55a86d144f98ee5e62
+      md5: 9aa6b559569709ee4719405b8ae948ee
       size: 18548
     outs:
     - path: models/best_model.pkl
@@ -119,22 +135,6 @@ stages:
       hash: md5
       md5: 215484aa58035b1fb18863be61c10d4e
       size: 1566
-  prepare_supabase_predictions_table:
-    cmd: python3 src/prepare_supabase_predictions_table.py
-    deps:
-    - path: src/prepare_supabase_predictions_table.py
-      hash: md5
-      md5: 715ef830a4735b69b32a666342222952
-      size: 2089
-    - path: supabase_logger.py
-      hash: md5
-      md5: 10981012abe65e891fa083d68741074e
-      size: 7738
-    outs:
-    - path: reports/supabase_predictions_table_ready.txt
-      hash: md5
-      md5: 730dd0653cab6be903cacb0017b3132c
-      size: 154
   evaluate:
     cmd: python3 src/evaluate.py
     deps:
@@ -192,7 +192,7 @@ stages:
       size: 262341
     - path: src/evaluate.py
       hash: md5
-      md5: 0fd9845c5d3a72b79d95e93ffec2ee7d
+      md5: ef99b2d9bcf04ead07f4f0acbbd1ff5d
       size: 12069
     outs:
     - path: reports/evaluation_report.json

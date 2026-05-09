@@ -1,120 +1,269 @@
-# Wine Quality Classifier
+# 🍷 Wine Quality Classifier
 
-Projeto de MLOps para classificação de qualidade de vinhos com:
-- Pipeline de dados e treinamento (`src/*.py` + `dvc.yaml`)
-- UI Streamlit (`streamlit_ui.py`)
-- Integração com Supabase e MLflow/DagsHub
+Projeto de **MLOps** para classificação de qualidade de vinhos com pipeline completo de ingestão, pré-processamento, treinamento e avaliação de modelos. Integração com **Supabase**, **MLflow/DagsHub**, **DVC** e **Streamlit**.
 
-## Estrutura
+## 📋 Visão Geral
 
-### EDA (notebook)
-- `notebooks/wine_quality.ipynb`
-- Principais etapas do EDA no notebook:
-  - Carga do dataset
-  - Distribuição da variável alvo (`quality`)
-  - Histogramas das features
-  - Análise de outliers (IQR 1.5x)
-  - Fusão de classes para problema binário:
-    - `0` = qualidade `< 7`
-    - `1` = qualidade `>= 7`
-  - Split treino/validação/teste (`60/20/20`)
+- **Objetivo**: Classificar a qualidade de vinhos em 2 classes (Ruim/Bom) usando dados físico-químicos
+- **Modelos**: Logistic Regression, Random Forest, KNN, SVM, XGBoost, MLP
+- **Técnicas de balanceamento**: SMOTE (over-sampling) + Tomek Links (under-sampling)
+- **Métrica principal**: F1-Score (validação e teste)
+- **Mecanismo de seleção**: Champion (melhor modelo promovido no MLflow Registry)
 
-### Scripts de pipeline (`src/`)
-- `src/ingestion.py`: coleta dados do Supabase; se necessário tenta criar tabela e fazer seed (Kaggle/local fallback).
-- `src/preprocessing.py`: normaliza schema e gera `data/processed/wine_processed.parquet`.
-- `src/prepare_data.py`: one-hot em `type`, split estratificado 60/20/20, salva `train/val/test.parquet`.
-- `src/train.py`: treina modelos (SMOTE e Tomek), registra métricas, salva modelos e `models/best_model.pkl`.
-- `src/evaluate.py`: avalia modelos no conjunto de teste e gera `reports/evaluation_report.json` + gráficos.
-- `src/prepare_supabase_predictions_table.py`: garante tabela de predições no Supabase.
+## 🗂️ Estrutura do Projeto
 
-### App/UI e suporte
-- `streamlit_ui.py`: interface para simulação e visualização de métricas.
-- `database.py`: conexão SQLAlchemy com `DATABASE_URL`.
-- `models.py`: modelo SQLAlchemy para logs locais (`simulation_logs`).
-- `supabase_logger.py`: grava/consulta histórico de predições no Supabase.
-- `dvc.yaml`: definição oficial dos estágios reproduzíveis com DVC.
-
-## Como subir o projeto (passo a passo)
-
-### 1) Pré-requisitos
-- Python 3.10+
-- `pip`
-- (Opcional) Docker
-- (Opcional) DVC
-- (Opcional) Kaggle CLI (`pip install kaggle`) se quiser seed automático via Kaggle
-
-### 2) Configurar ambiente
-```bash
-cp .env.example .env
 ```
-Preencha os valores reais no `.env`.
+wine_project/
+├── README.md
+├── Dockerfile              # Build da imagem Docker
+├── dvc.yaml               # Pipeline reproduzível com DVC
+├── requirements.txt       # Dependências Python
+├── .env.example           # Template de variáveis de ambiente
+│
+├── src/                   # Scripts de pipeline
+│   ├── ingestion.py       # Coleta dados (Supabase/Kaggle)
+│   ├── preprocessing.py   # Normalização e transformação
+│   ├── prepare_data.py    # One-hot encoding + split 60/20/20
+│   ├── train.py           # Treinamento com SMOTE/Tomek
+│   ├── evaluate.py        # Avaliação no conjunto de teste
+│   └── prepare_supabase_predictions_table.py  # Setup tabela de predições
+│
+├── notebooks/
+│   └── wine_quality.ipynb # EDA e exploração
+│
+├── streamlit_ui.py        # Interface Streamlit (predição + métricas)
+├── database.py            # Modelos SQLAlchemy
+├── models.py              # ORM para simulation_logs
+├── supabase_logger.py     # Logger para histórico de predições
+│
+├── data/
+│   ├── raw/               # Dados originais
+│   └── processed/         # Dados processados e splits
+│
+├── models/
+│   ├── trained/           # Modelos .joblib (SMOTE + Tomek)
+│   └── best_model.pkl     # Modelo champion em produção
+│
+├── reports/               # Artefatos e relatórios
+│   ├── training_report.json
+│   ├── evaluation_report.json
+│   └── model_comparison.json
+│
+└── mlruns/                # MLflow tracking local
+```
 
-### 3) Instalar dependências
+## 🔄 Pipeline de Dados (DVC)
+
+O pipeline é orquestrado por `dvc.yaml` com os seguintes estágios:
+
+1. **prepare_supabase_predictions_table** 
+   - Garante tabela `wine_predictions` no Supabase
+   - Output: marker file
+
+2. **ingest**
+   - Busca dados do Supabase ou Kaggle
+   - Cria tabela `wine_quality` se não existir
+   - Output: `data/raw/wine_quality.csv`
+
+3. **preprocess**
+   - Normaliza schema, remove outliers (IQR 1.5x)
+   - Codifica tipo de vinho (red/white)
+   - Output: `data/processed/wine_processed.parquet`
+
+4. **prepare**
+   - One-hot encoding + split estratificado 60/20/20
+   - Output: `train.parquet`, `val.parquet`, `test.parquet`
+
+5. **train** ⭐
+   - Treina 12 modelos (6 algoritmos × 2 estratégias de balanceamento)
+   - Registra no MLflow/DagsHub
+   - Promove melhor modelo como `@champion`
+   - Outputs:
+     - `models/trained/SMOTE_*.joblib` (6 modelos)
+     - `models/trained/Tomek_*.joblib` (6 modelos)
+     - `models/best_model.pkl` (champion)
+     - `reports/training_report.json` (métricas de validação)
+
+6. **evaluate**
+   - Avalia todos os modelos no conjunto de teste
+   - Output: `reports/evaluation_report.json`
+
+## 🚀 Começar Rápido
+
+### Pré-requisitos
+- Python 3.10+
+- Docker (opcional, para containerização)
+- DVC (instalado via `requirements.txt`)
+
+### Setup Local
+
+#### 1. Clonar e configurar ambiente
 ```bash
+git clone <repo>
+cd wine_project
+
+# Criar virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# ou: .venv\Scripts\activate  # Windows
+
+# Instalar dependências
 pip install -r requirements.txt
 ```
 
-### 4) Rodar pipeline completo
+#### 2. Configurar variáveis de ambiente
 ```bash
-dvc repro
+cp .env.example .env
+# Editar .env com seus valores
 ```
 
-### 5) Subir API + UI
+**Variáveis essenciais:**
+- `SUPABASE_URL`, `SUPABASE_KEY`: Acesso ao banco de dados
+- `DAGSHUB_USERNAME`, `DAGSHUB_TOKEN`, `DAGSHUB_REPO_NAME`: MLflow remoto
+- `DATABASE_URL`: Postgres local para logs (opcional)
+
+#### 3. Rodar pipeline completo
+```bash
+dvc repro -f
+```
+
+#### 4. Executar Streamlit
 ```bash
 streamlit run streamlit_ui.py
 ```
-- Streamlit: `http://localhost:8501`
+- Acesse: `http://localhost:8501`
+- Abas: **Predição** (simular) + **Histórico** (logs)
 
-## Deploy
+### 🐳 Deploy com Docker
 
-### Render (Docker)
-O projeto já inclui:
-- `Dockerfile`
-- `render.yaml`
+```bash
+# Build da imagem
+docker build -t wine-quality .
 
-No Render, configure as variáveis de ambiente (mesmas do `.env`) e use health check:
-- `/health`
+# Rodar localmente
+docker run --env-file .env -p 8501:8501 wine-quality
 
-## Variáveis de ambiente
+# No Render: conectar repositório, usar PORT=8501
+```
 
-As variáveis abaixo são utilizadas no código:
+## 📊 Métricas e Monitoramento
 
-### Supabase (Banco de dados remoto + API)
-- `SUPABASE_URL`: URL da instância Supabase (ex: `https://xyz.supabase.co`)
-- `SUPABASE_KEY`: API key do Supabase para autenticação
-- `SUPABASE_TABLE`: Nome da tabela com dados brutos (default: `wine_quality`)
-- `SUPABASE_PREDICTIONS_TABLE`: Tabela para armazenar histórico de predições (default: `wine_predictions`)
-- `SUPABASE_DATABASE_URL` (ou `SUPABASE_DB_URL`): Connection string PostgreSQL para operações DDL e seed SQL direto
+### Validação (treinamento)
+O arquivo `reports/training_report.json` contém:
+- Acurácia, Precisão, Recall, F1-Score para cada modelo
 
-### Banco local/UI (Postgres local para logs)
-- `DATABASE_URL`: Connection string PostgreSQL local para armazenar `simulation_logs` (ex: `postgresql://user:pass@localhost:5432/wine_db`)
-- `MODEL_PATH`: Caminho do modelo treinado para uso em produção (default: `models/best_model.pkl`)
+### Teste (avaliação)
+O arquivo `reports/evaluation_report.json` contém:
+- Mesmas métricas aplicadas ao conjunto de teste (20% dos dados)
 
-### MLflow / DagsHub (Rastreamento de experimentos)
-- `DAGSHUB_USERNAME`: Seu username no DagsHub
-- `DAGSHUB_REPO_NAME`: Nome do repositório no DagsHub (ex: `wine-predict`)
-- `DAGSHUB_TOKEN`: Token de autenticação do DagsHub
-- `MLFLOW_EXPERIMENT`: Nome do experimento MLflow (default: `wine-predict`) — usado para organizar runs
-- `MLFLOW_MODEL_NAME`: Nome do modelo no MLflow Registry (default: `wine-predict-binary`)
-- `MLFLOW_TRACKING_URI`: URI do servidor MLflow (opcional; se vazio, usa fallback automático via DagsHub)
+### MLflow/DagsHub
+- Todos os runs registrados em tempo real
+- Modelo champion marcado com alias `@champion`
+- Disponível em: `https://dagshub.com/{user}/{repo}.mlflow`
 
-### Ingestão de dados
-- `ALLOW_LOCAL_FALLBACK`: Se `true`, permite usar arquivo local quando Supabase indisponível (default: `false`)
-- `KAGGLE_USERNAME`: Username do Kaggle para download automático do dataset (opcional)
-- `KAGGLE_KEY`: API key do Kaggle para autenticação (opcional)
+## 🔧 Configuração de Ambiente
 
-### Deploy & Ambiente
-- `PORT`: Porta para o Streamlit (default: `8501`)
-- `ENVIRONMENT`: Ambiente de execução (`development`, `staging`, `production`)
+### Supabase (Banco de Dados)
+```env
+SUPABASE_URL=https://xyz.supabase.co
+SUPABASE_KEY=<anon_key>
+SUPABASE_DB_URL=postgresql://postgres:<pass>@xyz.supabase.co:5432/postgres
+SUPABASE_TABLE=wine_quality
+SUPABASE_PREDICTIONS_TABLE=wine_predictions
+```
 
-**Dica**: Copie `.env.example` e preencha com seus valores reais.
+### MLflow/DagsHub (Tracking de Experimentos)
+```env
+DAGSHUB_USERNAME=frpbotero
+DAGSHUB_REPO_NAME=wine-quality
+DAGSHUB_TOKEN=<token>
+MLFLOW_EXPERIMENT=wine-quality
+MLFLOW_TRACKING_URI=https://dagshub.com/frpbotero/wine-quality.mlflow
+```
 
-## Artefatos gerados
-- `data/raw/wine_quality.csv`
-- `data/processed/wine_processed.parquet`
-- `data/processed/splits/{train,val,test}.parquet`
-- `models/trained/*.joblib`
-- `models/best_model.pkl`
-- `reports/training_report.json`
-- `reports/evaluation_report.json`
+### Banco Local (Logs de Predições)
+```env
+DATABASE_URL=postgresql://user:pass@localhost:5432/wine_db
+```
+
+### Kaggle (Dataset Automático)
+```env
+KAGGLE_USERNAME=<username>
+KAGGLE_KEY=<key>
+```
+
+## 📈 Exemplo de Uso
+
+### Predição via UI
+1. Acesse `http://localhost:8501`
+2. Selecione tipo de vinho (Tinto/Branco)
+3. Ajuste parâmetros físico-químicos com sliders
+4. Clique em **Classificar**
+5. Veja predição (Bom/Ruim) e confiança (0-100%)
+
+### Histórico
+- Todas as predições são registradas no Supabase
+- Aba **Histórico** mostra últimas 100 consultas
+- Exportar para CSV disponível
+
+## 🛠️ Tecnologias
+
+| Componente | Tecnologia |
+|---|---|
+| **Ingestão** | Supabase, Kaggle API |
+| **Processamento** | Pandas, NumPy, Scikit-learn |
+| **ML/Balanceamento** | SMOTE, Tomek Links, Scikit-learn |
+| **Tracking** | MLflow, DagsHub |
+| **Reprodução** | DVC |
+| **UI** | Streamlit |
+| **Banco de Dados** | PostgreSQL (Supabase + local) |
+| **Container** | Docker |
+| **CI/CD** | Render |
+
+## 📝 Fluxo de Desenvolvimento
+
+```
+1. EDA (notebook)
+   ↓
+2. Ajustar preprocessing (src/preprocessing.py)
+   ↓
+3. Treinar novos modelos (src/train.py)
+   ↓
+4. Avaliar (src/evaluate.py)
+   ↓
+5. Testar UI (streamlit_ui.py)
+   ↓
+6. Commitar + Push
+   ↓
+7. Render redeploy automático
+```
+
+## 🤔 Troubleshooting
+
+### DVC error: arquivo já rastreado pelo Git
+```bash
+git rm -r --cached <arquivo>
+git commit -m "stop tracking <arquivo>"
+```
+
+### MLflow: experimento deletado
+- Restaure via: `client.restore_experiment(exp_id)`
+- Ou crie novo: `mlflow.set_experiment("novo_nome")`
+
+### Supabase connection timeout
+- Verifique IP whitelist
+- Confirm `SUPABASE_URL` e `SUPABASE_KEY`
+
+### Render deployment fails
+- Cheque `PORT=8501` em variáveis de ambiente
+- Verifique logs: `Build Logs` na dashboard Render
+
+## 📄 Licença
+
+MIT
+
+## 👨‍💻 Autor
+
+**Felipe Botero** - `frpbotero`
+
 
