@@ -184,7 +184,14 @@ def _setup_mlflow() -> None:
 
 
 def _make_preprocessor(num_cols: list[str]) -> ColumnTransformer:
-    return ColumnTransformer([("num", StandardScaler(), num_cols)])
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline as SkPipeline
+
+    num_pipeline = SkPipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler", StandardScaler()),
+    ])
+    return ColumnTransformer([("num", num_pipeline, num_cols)])
 
 
 def _get_classifiers() -> dict:
