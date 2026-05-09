@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: wine-quality-classifier
+    name: wine-predict-classifier
     runtime: docker
     dockerfilePath: ./Dockerfile
 

@@ -156,7 +156,7 @@ def _setup_mlflow() -> None:
     user = os.getenv("DAGSHUB_USERNAME", "")
     token = os.getenv("DAGSHUB_TOKEN", "")
     repo_name = os.getenv("DAGSHUB_REPO_NAME", "")
-    experiment = os.getenv("MLFLOW_EXPERIMENT", "wine-quality")
+    experiment = os.getenv("MLFLOW_EXPERIMENT", "wine-predict")
 
     if user and token and repo_name:
         # Configure DagsHub remote tracking

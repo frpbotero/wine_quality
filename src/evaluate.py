@@ -41,7 +41,7 @@ def _setup_mlflow() -> None:
     import os
 
     load_dotenv(ROOT / ".env")
-    experiment = os.getenv("MLFLOW_EXPERIMENT", "wine-quality")
+    experiment = os.getenv("MLFLOW_EXPERIMENT", "wine-predict")
 
     # Use local MLflow for evaluation
     print("[evaluate] ℹ️ Using local MLflow tracking at ./mlruns")

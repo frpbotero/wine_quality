@@ -32,7 +32,7 @@ TRAINING_REPORT_PATH = ROOT / "reports" / "training_report.json"
 # URI é lida do .env (MLFLOW_TRACKING_URI); o fallback usa DAGSHUB_USERNAME + DAGSHUB_REPO_NAME
 MLFLOW_TRACKING_URI = os.getenv(
     "MLFLOW_TRACKING_URI",
-    f"https://dagshub.com/{os.getenv('DAGSHUB_USERNAME', 'frpbotero')}/{os.getenv('DAGSHUB_REPO_NAME', 'wine-quality')}.mlflow",
+    f"https://dagshub.com/{os.getenv('DAGSHUB_USERNAME', 'frpbotero')}/{os.getenv('DAGSHUB_REPO_NAME', 'wine-predict')}.mlflow",
 )
 
 CLASS_LABELS = {0: "🔴 Not Good", 1: "🟢 Good"}
@@ -144,7 +144,7 @@ def load_training_report() -> dict:
             os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
             mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
             client = mlflow.tracking.MlflowClient()
-            report = _extract_report_from_mlflow(client, "wine-quality")
+            report = _extract_report_from_mlflow(client, "wine-predict")
             if report:
                 return report
     except Exception:
@@ -156,7 +156,7 @@ def load_training_report() -> dict:
         local_uri = str(ROOT / "mlruns")
         mlflow.set_tracking_uri(local_uri)
         client = mlflow.tracking.MlflowClient()
-        report = _extract_report_from_mlflow(client, "wine-quality")
+        report = _extract_report_from_mlflow(client, "wine-predict")
         if report:
             return report
     except Exception:

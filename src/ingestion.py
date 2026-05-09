@@ -23,7 +23,7 @@ ALLOW_LOCAL_FALLBACK = os.getenv("ALLOW_LOCAL_FALLBACK", "false").lower() == "tr
 DEFAULT_SOURCE = ROOT / "data" / "wine_quality.csv"
 DEFAULT_RAW_OUT = ROOT / "data" / "raw" / "wine_quality.csv"
 KAGGLE_RAW_PATH = ROOT / "data" / "raw" / "winequalityN.csv"
-KAGGLE_DATASET = "rajyellow46/wine-quality"
+KAGGLE_DATASET = "rajyellow46/wine-predict"
 KAGGLE_FILE = "winequalityN.csv"
 
 BATCH_SIZE = 500

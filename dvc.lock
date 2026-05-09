@@ -60,8 +60,8 @@ stages:
       size: 32674
     - path: src/train.py
       hash: md5
-      md5: ef971639ebb871efb7dfc0c5579e1935
-      size: 18132
+      md5: c1db4ab62286ed55a86d144f98ee5e62
+      size: 18548
     outs:
     - path: models/best_model.pkl
       hash: md5
@@ -133,7 +133,7 @@ stages:
     outs:
     - path: reports/supabase_predictions_table_ready.txt
       hash: md5
-      md5: e6121bce67de1fb49398e7a88f2e6836
+      md5: 730dd0653cab6be903cacb0017b3132c
       size: 154
   evaluate:
     cmd: python3 src/evaluate.py

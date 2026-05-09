@@ -1,4 +1,4 @@
 [core]
     remote = myremote
 ['remote "myremote"']
-    url = https://dagshub.com/frpbotero/wine-quality.dvc
+    url = https://dagshub.com/frpbotero/wine-predict.dvc

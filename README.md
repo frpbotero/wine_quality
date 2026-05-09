@@ -92,10 +92,10 @@ As variáveis abaixo são utilizadas no código:
 
 ### MLflow / DagsHub (Rastreamento de experimentos)
 - `DAGSHUB_USERNAME`: Seu username no DagsHub
-- `DAGSHUB_REPO_NAME`: Nome do repositório no DagsHub (ex: `wine-quality`)
+- `DAGSHUB_REPO_NAME`: Nome do repositório no DagsHub (ex: `wine-predict`)
 - `DAGSHUB_TOKEN`: Token de autenticação do DagsHub
-- `MLFLOW_EXPERIMENT`: Nome do experimento MLflow (default: `wine-quality`) — usado para organizar runs
-- `MLFLOW_MODEL_NAME`: Nome do modelo no MLflow Registry (default: `wine-quality-binary`)
+- `MLFLOW_EXPERIMENT`: Nome do experimento MLflow (default: `wine-predict`) — usado para organizar runs
+- `MLFLOW_MODEL_NAME`: Nome do modelo no MLflow Registry (default: `wine-predict-binary`)
 - `MLFLOW_TRACKING_URI`: URI do servidor MLflow (opcional; se vazio, usa fallback automático via DagsHub)
 
 ### Ingestão de dados
